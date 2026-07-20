@@ -1,0 +1,14 @@
+# Environnement virtuel
+kit/
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Base de données locale
+db.sqlite3
+
+# Fichiers système ou d'IDE
+.DS_Store
+.idea/
+.vscode/
