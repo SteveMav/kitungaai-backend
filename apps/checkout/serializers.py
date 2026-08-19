@@ -23,4 +23,4 @@ class CorrectLineSerializer(ExpectedVersionSerializer):
 class CompleteSaleSerializer(serializers.Serializer):
     expected_version = serializers.IntegerField(min_value=1)
     payment_method = serializers.RegexField(regex=r"^[A-Z][A-Z0-9_]{1,31}$", max_length=32)
-    payment_status = serializers.ChoiceField(choices=("PENDING", "PAID"))
+    payment_status = serializers.ChoiceField(choices=("PAID",))

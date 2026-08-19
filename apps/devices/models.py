@@ -34,7 +34,7 @@ class CredentialMixin(models.Model):
         return check_password(raw_secret, self.credential_hash)
 
 
-class BasketDevice(CredentialMixin):
+class BasketDevice(models.Model):
     class ResetState(models.TextChoices):
         READY = "READY", "Prêt"
         PENDING = "PENDING", "Réinitialisation attendue"

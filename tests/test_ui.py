@@ -26,9 +26,7 @@ class KitungaUiTests(TestCase):
             stock=10,
         )
         VisionLabel.objects.create(label="arduino_mega", product=self.product)
-        self.device = BasketDevice(device_code="UI-PI-01", matrix_id=201)
-        self.device.set_secret("device-ui-test-secret-123456789")
-        self.device.save()
+        self.device = BasketDevice.objects.create(device_code="UI-PI-01", matrix_id=201)
         self.terminal = CheckoutTerminal(terminal_code="UI-CAISSE-01")
         self.terminal.set_secret("terminal-ui-test-secret-123456")
         self.terminal.save()
@@ -54,6 +52,7 @@ class KitungaUiTests(TestCase):
             reverse("ui:baskets"),
             reverse("ui:basket-detail", args=[self.session.id]),
             reverse("ui:checkout"),
+            reverse("ui:invoices"),
             reverse("ui:inventory"),
             reverse("ui:product-edit", args=[self.product.id]),
             reverse("ui:rfid-enrollments"),
@@ -151,10 +150,29 @@ class KitungaUiTests(TestCase):
                 "expected_version": self.session.version,
                 "idempotency_key": str(uuid.uuid4()),
                 "payment_method": "CASH",
-                "payment_status": Sale.PaymentStatus.PAID,
             },
         )
         self.assertRedirects(response, reverse("ui:checkout"))
         self.product.refresh_from_db()
         self.assertEqual(self.product.stock, 8)
         self.assertEqual(Sale.objects.count(), 1)
+        sale = Sale.objects.get()
+        history = self.client.get(reverse("ui:invoice-detail", args=[sale.id]))
+        self.assertContains(history, sale.sale_number)
+        self.assertContains(history, "Arduino Mega")
+        self.assertContains(history, "30000 FC")
+
+    def test_backend_can_prepare_an_active_basket_for_manual_checkout(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("ui:begin-manual-checkout", args=[self.session.id]),
+            data={"expected_version": self.session.version},
+        )
+
+        self.assertRedirects(response, reverse("ui:checkout-detail", args=[self.session.id]))
+        self.session.refresh_from_db()
+        self.assertEqual(self.session.status, BasketSession.Status.CHECKOUT_PENDING)
+        self.assertIsNone(self.session.selected_terminal)
+        checkout_page = self.client.get(reverse("ui:checkout-detail", args=[self.session.id]))
+        self.assertContains(checkout_page, "Confirmer la vente")

@@ -142,6 +142,44 @@ def select_basket_from_scan(terminal, payload):
 
 
 @transaction.atomic
+def begin_manual_checkout(session_id, user, payload):
+    """Lock an active basket for human review without a matrix scanner."""
+    session = BasketSession.objects.filter(pk=session_id).first()
+    if session is None:
+        raise DomainError("session_not_found", 404)
+    if session.status != BasketSession.Status.OPEN:
+        raise DomainError("basket_locked", 409)
+    if session.version != payload["expected_version"]:
+        raise DomainError("version_conflict", 409, current_version=session.version)
+
+    now = timezone.now()
+    changed = BasketSession.objects.filter(
+        pk=session.pk,
+        status=BasketSession.Status.OPEN,
+        version=payload["expected_version"],
+    ).update(
+        status=BasketSession.Status.CHECKOUT_PENDING,
+        version=F("version") + 1,
+        checkout_started_at=now,
+        updated_at=now,
+    )
+    if changed != 1:
+        raise DomainError("version_conflict", 409)
+
+    BasketCorrection.objects.create(
+        session=session,
+        author=user,
+        action="MANUAL_CHECKOUT",
+        reason="Vérification manuelle depuis le backend",
+        before={"status": BasketSession.Status.OPEN},
+        after={"status": BasketSession.Status.CHECKOUT_PENDING},
+    )
+    session = session_with_lines(session.id)
+    transaction.on_commit(lambda: publish_basket_event(session, "checkout.manually_selected"))
+    return session
+
+
+@transaction.atomic
 def correct_line(session_id, line_id, user, payload):
     session = BasketSession.objects.filter(pk=session_id).first()
     if session is None:
@@ -346,6 +384,9 @@ def complete_sale(session_id, user, idempotency_key, payload, *, payment_device=
         if str(existing.session_id) != str(session_id):
             raise DomainError("idempotency_key_conflict", 409)
         return existing, True
+
+    if payload["payment_status"] != Sale.PaymentStatus.PAID:
+        raise DomainError("payment_not_confirmed", 422)
 
     session = session_with_lines(session_id)
     if session is None:

@@ -42,24 +42,17 @@ class BasketDeviceAuthentication(BaseAuthentication):
     def authenticate(self, request):
         kwargs = request.parser_context.get("kwargs", {}) if request.parser_context else {}
         device_code = kwargs.get("device_code") or kwargs.get("device_id") or request.headers.get("X-Device-Code")
-        scheme, credentials = _authorization_parts(request)
-        raw_secret = request.headers.get("X-Device-Secret", "")
-        if scheme.lower() == "device":
-            raw_secret = credentials
-
-        if not device_code or not raw_secret:
+        if not device_code:
             raise UnauthorizedDevice()
 
         try:
             device = BasketDevice.objects.get(device_code=device_code, enabled=True)
         except BasketDevice.DoesNotExist as exc:
             raise UnauthorizedDevice() from exc
-        if not device.check_secret(raw_secret):
-            raise UnauthorizedDevice()
         return HardwarePrincipal(device.device_code, "device"), device
 
     def authenticate_header(self, request):
-        return "Device"
+        return "Device-Id"
 
 
 class CheckoutTerminalAuthentication(BaseAuthentication):

@@ -18,6 +18,7 @@ from apps.catalog.models import VisionLabel
 from apps.checkout.models import Sale, StockMovement
 from apps.checkout.services import (
     DomainError,
+    begin_manual_checkout,
     complete_sale,
     correct_line,
     release_basket,
@@ -34,6 +35,7 @@ from apps.wallets.services import (
 from .context_processors import can_manage_rfid_enrollments
 from .forms import (
     BasketLineCorrectionForm,
+    BeginManualCheckoutForm,
     CompleteSaleForm,
     ProductForm,
     ReleaseBasketForm,
@@ -52,6 +54,7 @@ DOMAIN_ERROR_MESSAGES = {
     "empty_basket": "Le panier est vide et ne peut pas être confirmé.",
     "uncatalogued_objects_pending": "Retirez ou répertoriez les objets inconnus avant de confirmer la vente.",
     "insufficient_stock": "Le stock disponible ne suffit pas pour confirmer cette vente.",
+    "payment_not_confirmed": "La facture doit être payée avant d'être clôturée.",
     "session_not_found": "Cette session de panier n'existe plus.",
 }
 
@@ -196,6 +199,7 @@ def baskets(request, session_id=None):
             "device_rows": device_rows,
             "selected": selected,
             "selected_totals": _session_totals(selected) if selected else None,
+            "can_complete": _can_complete_sale(request.user),
         },
     )
 
@@ -210,6 +214,23 @@ def basket_data(request, session_id):
     payload["device_online"] = _is_online(session.device.last_seen_at)
     payload["last_seen_at"] = session.device.last_seen_at
     return JsonResponse(payload)
+
+
+@ui_access_required
+def begin_manual_checkout_from_basket(request, session_id):
+    if request.method != "POST" or not _can_complete_sale(request.user):
+        raise PermissionDenied
+    form = BeginManualCheckoutForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "Le panier n'a pas pu être préparé pour la vérification.")
+        return redirect("ui:basket-detail", session_id=session_id)
+    try:
+        begin_manual_checkout(session_id, request.user, form.cleaned_data)
+    except DomainError as error:
+        messages.error(request, DOMAIN_ERROR_MESSAGES.get(error.code, "Le panier n'a pas pu être préparé."))
+        return redirect("ui:basket-detail", session_id=session_id)
+    messages.success(request, "Panier verrouillé pour vérification manuelle.")
+    return redirect("ui:checkout-detail", session_id=session_id)
 
 
 @ui_access_required
@@ -233,7 +254,6 @@ def checkout(request, session_id=None):
                 "expected_version": selected.version,
                 "idempotency_key": uuid.uuid4(),
                 "payment_method": "CASH",
-                "payment_status": Sale.PaymentStatus.PAID,
             }
         )
         release_form = ReleaseBasketForm(initial={"expected_version": selected.version})
@@ -303,7 +323,7 @@ def complete_checkout(request, session_id):
     payload = {
         "expected_version": form.cleaned_data["expected_version"],
         "payment_method": form.cleaned_data["payment_method"],
-        "payment_status": form.cleaned_data["payment_status"],
+        "payment_status": Sale.PaymentStatus.PAID,
     }
     try:
         sale, _duplicate = complete_sale(
@@ -336,6 +356,44 @@ def release_checkout(request, session_id):
     except DomainError as error:
         messages.error(request, DOMAIN_ERROR_MESSAGES.get(error.code, "Le panier n'a pas pu être libéré."))
         return redirect("ui:checkout-detail", session_id=session_id)
+
+
+@ui_access_required
+def invoices(request, sale_id=None):
+    query = request.GET.get("q", "").strip()
+    sales_query = (
+        Sale.objects.filter(payment_status=Sale.PaymentStatus.PAID)
+        .select_related(
+            "cashier",
+            "session__customer",
+            "session__device",
+        )
+        .prefetch_related("lines")
+    )
+    selected = get_object_or_404(sales_query, pk=sale_id) if sale_id else None
+
+    if query:
+        sales_query = sales_query.filter(
+            Q(sale_number__icontains=query)
+            | Q(session__customer__display_name__icontains=query)
+            | Q(session__customer__customer_code__icontains=query)
+        )
+    sales = list(sales_query[:200])
+
+    if selected is None and sales:
+        selected = sales[0]
+
+    return render(
+        request,
+        "ui/invoices.html",
+        {
+            "section": "invoices",
+            "page_title": "Factures",
+            "sales": sales,
+            "selected": selected,
+            "query": query,
+        },
+    )
 
 
 @ui_access_required

@@ -1,7 +1,6 @@
 from django import forms
 
 from api.models import Product
-from apps.checkout.models import Sale
 from apps.wallets.models import Customer
 
 
@@ -84,6 +83,10 @@ class UncataloguedLineRemovalForm(forms.Form):
     )
 
 
+class BeginManualCheckoutForm(forms.Form):
+    expected_version = forms.IntegerField(widget=forms.HiddenInput)
+
+
 class CompleteSaleForm(forms.Form):
     PAYMENT_METHODS = (
         ("CASH", "Espèces"),
@@ -94,10 +97,6 @@ class CompleteSaleForm(forms.Form):
     expected_version = forms.IntegerField(widget=forms.HiddenInput)
     idempotency_key = forms.UUIDField(widget=forms.HiddenInput)
     payment_method = forms.ChoiceField(choices=PAYMENT_METHODS, label="Mode de paiement")
-    payment_status = forms.ChoiceField(
-        choices=((Sale.PaymentStatus.PAID, "Payé"), (Sale.PaymentStatus.PENDING, "À régler")),
-        label="Statut",
-    )
 
 
 class ReleaseBasketForm(forms.Form):

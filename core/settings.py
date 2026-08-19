@@ -37,6 +37,7 @@ ALLOWED_HOSTS = env_list(
         "testserver",
         "stevemavuela",
         "stevemavuela.local",
+        "10.20.20.153",
     ),
 )
 CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS")
