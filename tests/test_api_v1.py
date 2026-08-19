@@ -7,7 +7,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from api.models import Product
-from apps.baskets.models import BasketLine, BasketSession, DetectionEvent
+from apps.baskets.models import BasketLine, BasketSession, DetectionEvent, UncataloguedBasketLine
 from apps.catalog.models import VisionLabel
 from apps.checkout.models import MatrixScanEvent, Sale, StockMovement
 from apps.devices.models import BasketDevice, CheckoutTerminal, DeviceCommand
@@ -145,13 +145,26 @@ class DeviceEventApiTests(KitungaApiMixin, TestCase):
         self.product.save(update_fields=("price", "updated_at"))
         self.assertEqual(str(BasketLine.objects.get().unit_price_snapshot), "1500.00")
 
-    def test_unknown_label_is_audited_without_changing_lines(self):
+    def test_yolo_label_uses_the_french_catalogue_product_name(self):
+        VisionLabel.objects.create(label="arduino-mega", product=self.product)
+        self.heartbeat()
+        response = self.send_detection(detected_label="Arduino-Mega")
+
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(response.json()["catalogued"])
+        self.assertEqual(response.json()["display_label"], "Arduino Mega 2560")
+        self.assertEqual(BasketLine.objects.get().product, self.product)
+
+    def test_unknown_label_is_added_as_an_uncatalogued_basket_line(self):
         self.heartbeat()
         response = self.send_detection(detected_label="label_inconnu")
-        self.assertEqual(response.status_code, 404)
-        self.assertEqual(response.json()["error"], "unknown_label")
-        self.assertEqual(DetectionEvent.objects.get().result, DetectionEvent.Result.UNKNOWN_LABEL)
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(response.json()["accepted"])
+        self.assertFalse(response.json()["catalogued"])
+        self.assertEqual(response.json()["display_label"], "Objet non répertorié : label_inconnu")
+        self.assertEqual(DetectionEvent.objects.get().result, DetectionEvent.Result.UNCATALOGUED_OBJECT)
         self.assertFalse(BasketLine.objects.exists())
+        self.assertEqual(UncataloguedBasketLine.objects.get().detected_label, "label_inconnu")
 
     def test_late_event_is_audited_when_checkout_locked(self):
         self.heartbeat()
@@ -250,6 +263,30 @@ class CheckoutApiTests(KitungaApiMixin, TestCase):
         self.assertEqual(session.status, BasketSession.Status.CHECKOUT_PENDING)
         self.assertFalse(Sale.objects.exists())
         self.assertFalse(StockMovement.objects.exists())
+
+    def test_sale_is_blocked_while_an_uncatalogued_object_is_pending(self):
+        self.heartbeat()
+        self.assertEqual(self.send_detection(quantity=1).status_code, 201)
+        self.assertEqual(self.send_detection(sequence=2, detected_label="buzzer", quantity=1).status_code, 201)
+        session = BasketSession.objects.get(device=self.device)
+        self.assertEqual(self.scan().status_code, 200)
+        session.refresh_from_db()
+        self.client.force_login(self.cashier())
+
+        response = self.client.post(
+            reverse("api_v1:cashier-complete", args=[session.id]),
+            data={
+                "expected_version": session.version,
+                "payment_method": "CASH",
+                "payment_status": "PAID",
+            },
+            content_type="application/json",
+            HTTP_IDEMPOTENCY_KEY=str(uuid.uuid4()),
+        )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["error"], "uncatalogued_objects_pending")
+        self.assertFalse(Sale.objects.exists())
 
     def test_version_conflict_does_not_correct_line(self):
         session = self.prepare_checkout(quantity=2)

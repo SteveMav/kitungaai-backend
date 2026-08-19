@@ -17,6 +17,11 @@ urlpatterns = [
         views.correct_checkout_line,
         name="correct-line",
     ),
+    path(
+        "caisse/<uuid:session_id>/objets-non-repertories/<int:line_id>/retirer/",
+        views.remove_uncatalogued_checkout_line,
+        name="remove-uncatalogued-line",
+    ),
     path("caisse/<uuid:session_id>/confirmer/", views.complete_checkout, name="complete-checkout"),
     path("caisse/<uuid:session_id>/liberer/", views.release_checkout, name="release-checkout"),
     path("stock/", views.inventory, name="inventory"),

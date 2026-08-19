@@ -13,6 +13,7 @@ from .services import detection_result_payload, ingest_detection
 
 RESULT_STATUS = {
     DetectionEvent.Result.APPLIED: status.HTTP_201_CREATED,
+    DetectionEvent.Result.UNCATALOGUED_OBJECT: status.HTTP_201_CREATED,
     DetectionEvent.Result.UNKNOWN_LABEL: status.HTTP_404_NOT_FOUND,
     DetectionEvent.Result.BASKET_LOCKED: status.HTTP_409_CONFLICT,
     DetectionEvent.Result.RESET_PENDING: status.HTTP_409_CONFLICT,
@@ -52,7 +53,9 @@ class DetectionEventView(APIView):
         if duplicate:
             return Response(payload, status=status.HTTP_200_OK)
         payload_status = RESULT_STATUS[event.result]
-        if event.result == DetectionEvent.Result.UNKNOWN_LABEL:
+        if event.result == DetectionEvent.Result.UNCATALOGUED_OBJECT:
+            payload["accepted"] = True
+        elif event.result == DetectionEvent.Result.UNKNOWN_LABEL:
             payload["error"] = "unknown_label"
         elif event.result == DetectionEvent.Result.BASKET_LOCKED:
             payload["error"] = "basket_locked"

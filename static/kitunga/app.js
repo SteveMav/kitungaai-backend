@@ -28,6 +28,7 @@
     const ledgerWrap = monitor.querySelector("[data-ledger-wrap]");
     const countNode = monitor.querySelector("[data-basket-count]");
     const totalNode = monitor.querySelector("[data-basket-total]");
+    const totalLabelNode = monitor.querySelector("[data-basket-total-label]");
     const statusNode = monitor.querySelector("[data-basket-status]");
     const updatedNode = monitor.querySelector("[data-basket-updated]");
     const liveState = monitor.querySelector("[data-live-state]");
@@ -48,19 +49,19 @@
         const name = document.createElement("strong");
         name.textContent = line.product.name;
         const sku = document.createElement("small");
-        sku.textContent = line.product.sku;
+        sku.textContent = line.catalogued ? line.product.sku : `Label modèle : ${line.detected_label}`;
         product.append(name, sku);
         productCell.append(product);
 
         const price = cell("Prix unitaire", "price");
-        price.textContent = `${money.format(Number(line.unit_price))} FC`;
+        price.textContent = line.catalogued ? `${money.format(Number(line.unit_price))} FC` : "À définir";
         const quantity = cell("Quantité");
         const quantityValue = document.createElement("span");
         quantityValue.className = "quantity-readonly";
         quantityValue.textContent = line.quantity;
         quantity.append(quantityValue);
         const subtotal = cell("Sous-total", "align-right price strong");
-        subtotal.textContent = `${money.format(Number(line.subtotal))} FC`;
+        subtotal.textContent = line.catalogued ? `${money.format(Number(line.subtotal))} FC` : "—";
         row.append(productCell, price, quantity, subtotal);
         return row;
     }
@@ -72,6 +73,9 @@
         ledgerWrap.classList.toggle("is-empty", isEmpty);
         countNode.textContent = payload.item_count;
         totalNode.textContent = `${money.format(Number(payload.total))} FC`;
+        totalLabelNode.textContent = payload.uncatalogued_item_count
+            ? "Total des articles répertoriés"
+            : "Total du panier";
         statusNode.textContent = payload.status_label || payload.status;
         statusNode.className = `status-badge ${payload.status === "OPEN" ? "status-success" : "status-warning"}`;
         updatedNode.textContent = new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(payload.updated_at));

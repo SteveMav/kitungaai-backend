@@ -74,6 +74,16 @@ class BasketLineCorrectionForm(forms.Form):
     )
 
 
+class UncataloguedLineRemovalForm(forms.Form):
+    expected_version = forms.IntegerField(widget=forms.HiddenInput)
+    reason = forms.CharField(
+        max_length=255,
+        required=False,
+        label="Motif",
+        widget=forms.TextInput(attrs={"placeholder": "Objet non répertorié retiré après vérification"}),
+    )
+
+
 class CompleteSaleForm(forms.Form):
     PAYMENT_METHODS = (
         ("CASH", "Espèces"),

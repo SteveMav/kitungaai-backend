@@ -63,7 +63,29 @@
                         {% endfor %}
                     </div>
                     <p class="correction-help">Mettez une quantité à 0 pour retirer la ligne. Chaque correction reste enregistrée.</p>
-                    {% else %}
+                    {% endif %}
+                    {% if selected.uncatalogued_lines.all %}
+                    <div class="checkout-line-list">
+                        {% for line in selected.uncatalogued_lines.all %}
+                        <article class="checkout-line">
+                            <div class="checkout-product"><strong>{{ line.display_name }}</strong><small>Label modèle : {{ line.detected_label }} · prix à définir</small></div>
+                            {% if can_correct %}
+                            <form class="quantity-form" method="post" action="{% url 'ui:remove-uncatalogued-line' selected.id line.id %}" data-confirm="Retirer cet objet non répertorié du panier ?">
+                                {% csrf_token %}
+                                <input type="hidden" name="expected_version" value="{{ selected.version }}">
+                                <input type="hidden" name="reason" value="Objet non répertorié retiré après vérification en caisse">
+                                <button class="button button-secondary button-compact" type="submit">Retirer</button>
+                            </form>
+                            {% else %}
+                            <span class="quantity-readonly">{{ line.quantity }}</span>
+                            {% endif %}
+                            <strong class="line-total">À définir</strong>
+                        </article>
+                        {% endfor %}
+                    </div>
+                    <p class="correction-help">Ces objets sont conservés pour vérification et ne peuvent pas être facturés tant qu'ils ne sont pas retirés.</p>
+                    {% endif %}
+                    {% if not selected.lines.all and not selected.uncatalogued_lines.all %}
                     <div class="ledger-empty static-empty"><strong>Ce panier est vide</strong><p>Libérez-le pour reprendre les détections ou vérifiez l'appareil.</p></div>
                     {% endif %}
                 </div>
@@ -71,7 +93,7 @@
                 <aside class="checkout-summary" aria-labelledby="summary-title">
                     <p class="eyebrow">Récapitulatif</p>
                     <h3 id="summary-title">Confirmer la vente</h3>
-                    <dl class="summary-list"><div><dt>Articles</dt><dd>{{ selected_totals.items }}</dd></div><div><dt>Sous-total</dt><dd>{{ selected_totals.total|floatformat:0 }} FC</dd></div><div class="summary-total"><dt>Total</dt><dd>{{ selected_totals.total|floatformat:0 }} FC</dd></div></dl>
+                    <dl class="summary-list"><div><dt>Articles</dt><dd>{{ selected_totals.items }}</dd></div><div><dt>Sous-total</dt><dd>{{ selected_totals.total|floatformat:0 }} FC</dd></div><div class="summary-total"><dt>{% if selected_totals.uncatalogued_items %}Total des articles répertoriés{% else %}Total{% endif %}</dt><dd>{{ selected_totals.total|floatformat:0 }} FC</dd></div></dl>
                     {% if can_complete %}
                     <form class="stack-form checkout-form" method="post" action="{% url 'ui:complete-checkout' selected.id %}" data-confirm="Confirmer cette vente et décrémenter le stock ?">
                         {% csrf_token %}
@@ -79,7 +101,7 @@
                         {{ complete_form.idempotency_key }}
                         <div class="field-group"><label for="{{ complete_form.payment_method.id_for_label }}">{{ complete_form.payment_method.label }}</label>{{ complete_form.payment_method }}</div>
                         <div class="field-group"><label for="{{ complete_form.payment_status.id_for_label }}">{{ complete_form.payment_status.label }}</label>{{ complete_form.payment_status }}</div>
-                        <button class="button button-primary button-full" type="submit" {% if not selected.lines.all %}disabled{% endif %}>Confirmer et mettre à jour le stock</button>
+                        <button class="button button-primary button-full" type="submit" {% if not selected.lines.all or selected.uncatalogued_lines.all %}disabled{% endif %}>Confirmer et mettre à jour le stock</button>
                     </form>
                     {% endif %}
                     {% if can_release %}

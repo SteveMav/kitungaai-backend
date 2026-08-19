@@ -38,7 +38,7 @@ class DashboardStatsView(APIView):
                 ).count(),
                 "unknown_labels_today": DetectionEvent.objects.filter(
                     received_at__date=today,
-                    result=DetectionEvent.Result.UNKNOWN_LABEL,
+                    result=DetectionEvent.Result.UNCATALOGUED_OBJECT,
                 ).count(),
             }
         )

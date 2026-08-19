@@ -111,13 +111,21 @@ def add_detection(request, device_id=None):
     event, duplicate = ingest_detection(request.auth, serializer.validated_data)
 
     response_payload = detection_result_payload(event, duplicate)
-    if event.result == DetectionEvent.Result.APPLIED:
+    if event.result in (
+        DetectionEvent.Result.APPLIED,
+        DetectionEvent.Result.UNCATALOGUED_OBJECT,
+    ):
         session = session_with_lines(event.session_id)
         response_payload.update(
             {
-                "message": "Événement appliqué.",
+                "message": (
+                    "Événement appliqué."
+                    if event.result == DetectionEvent.Result.APPLIED
+                    else "Objet non répertorié ajouté au panier."
+                ),
                 "code": request.auth.device_code,
                 "basket": _legacy_basket_payload(session),
+                "accepted": True,
             }
         )
         return Response(response_payload, status=status.HTTP_200_OK if duplicate else status.HTTP_201_CREATED)

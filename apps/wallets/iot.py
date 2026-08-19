@@ -10,7 +10,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.baskets.models import BasketLine, BasketSession, DetectionEvent
-from apps.baskets.services import ingest_detection
+from apps.baskets.services import detection_result_payload, ingest_detection
 from apps.checkout.models import Sale
 from apps.checkout.services import DomainError, complete_sale
 from apps.devices.authentication import BasketDeviceAuthentication
@@ -235,14 +235,24 @@ class SendDetectionView(BasketIoTView):
                 "model_version": "",
             },
         )
-        if event.result == DetectionEvent.Result.APPLIED:
+        if event.result in (
+            DetectionEvent.Result.APPLIED,
+            DetectionEvent.Result.UNCATALOGUED_OBJECT,
+        ):
+            detection_payload = detection_result_payload(event, duplicate)
             return Response(
                 {
-                    "status": "PRODUCT_ADDED",
+                    "status": (
+                        "PRODUCT_ADDED"
+                        if event.result == DetectionEvent.Result.APPLIED
+                        else "UNCATALOGUED_OBJECT_ADDED"
+                    ),
                     "basket_id": str(session.id),
                     "label": event.detected_label,
                     "accepted": True,
                     "duplicate": duplicate,
+                    "display_label": detection_payload["display_label"],
+                    "catalogued": detection_payload["catalogued"],
                 },
                 status=status.HTTP_200_OK if duplicate else status.HTTP_201_CREATED,
             )
