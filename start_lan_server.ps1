@@ -6,7 +6,7 @@ if (-not (Test-Path -LiteralPath $daphne)) {
 }
 
 if (-not $env:DJANGO_ALLOWED_HOSTS) {
-    $env:DJANGO_ALLOWED_HOSTS = "localhost,127.0.0.1,STEVEMAVUELA,STEVEMAVUELA.local"
+    $env:DJANGO_ALLOWED_HOSTS = "localhost,127.0.0.1,stevemavuela,stevemavuela.local"
 }
 
 Set-Location $serverRoot
