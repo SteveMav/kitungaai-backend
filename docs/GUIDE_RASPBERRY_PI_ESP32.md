@@ -66,9 +66,11 @@ Dans l'interface Kitunga :
 1. Ouvrir **Stock**.
 2. Ouvrir le produit.
 3. Renseigner **Labels reconnus par la caméra**.
-4. Utiliser exactement le texte produit par le modèle, par exemple `arduino_mega_2560`.
+4. Utiliser exactement le texte produit par le modèle, par exemple `Arduino-Mega`.
 
-Un label inconnu est refusé et ne modifie pas le panier.
+Un label inconnu du catalogue est conservé dans le panier comme **objet non
+répertorié**. Il reste sans prix et doit être traité par le caissier avant la
+vente.
 
 ### 2.4 Lancer Django sur le réseau local
 
@@ -300,7 +302,7 @@ Règles de réessai :
 - HTTP `429` : attendre puis réessayer le même événement ;
 - HTTP `401` : arrêter l'envoi et signaler une erreur de configuration ;
 - HTTP `422` : isoler l'événement, corriger le payload et ne pas boucler sans fin ;
-- `unknown_label` : conserver l'erreur pour associer le label dans Django ;
+- `uncatalogued_object` : afficher l'objet non répertorié et le faire vérifier à la caisse ;
 - `basket_locked` : arrêter les détections pour cette session et continuer les heartbeats.
 
 Ne jamais créer un nouvel UUID lors d'un simple réessai réseau.
@@ -408,7 +410,7 @@ Résultats possibles :
 | HTTP initial | `result` | Signification |
 |---:|---|---|
 | `201` | `applied` | Événement appliqué au panier |
-| `404` | `unknown_label` | Aucun produit actif ne correspond au label |
+| `201` | `uncatalogued_object` | Objet détecté conservé au panier, sans prix catalogue |
 | `409` | `basket_locked` | Panier à la caisse, reset en attente ou ancienne session |
 | `409` | `version_conflict` | Modification concurrente ; recharger l'état |
 | `422` | `invalid_removal` | Retrait impossible pour la quantité connue |
@@ -560,7 +562,7 @@ Effectuer les tests dans cet ordre :
 - [ ] Le retrait produit un seul `ITEM_REMOVED`.
 - [ ] Une coupure réseau conserve l'événement localement.
 - [ ] Après reconnexion, le même UUID est rejoué et la quantité ne double pas.
-- [ ] Un label inconnu apparaît dans les événements d'audit et ne modifie pas le panier.
+- [ ] Un label inconnu apparaît comme objet non répertorié dans le panier et reste bloqué à la caisse jusqu'à vérification.
 
 ### Caisse ESP32
 

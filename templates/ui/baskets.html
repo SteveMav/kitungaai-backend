@@ -64,7 +64,7 @@
                 <span class="last-update">Dernière mise à jour <time data-basket-updated>{{ selected.updated_at|date:"H:i:s" }}</time></span>
             </div>
 
-            <div class="ledger-table-wrap {% if not selected.lines.all %}is-empty{% endif %}" data-ledger-wrap>
+            <div class="ledger-table-wrap {% if not selected.lines.all and not selected.uncatalogued_lines.all %}is-empty{% endif %}" data-ledger-wrap>
                 <table class="ledger-table">
                     <thead><tr><th>Article</th><th>Prix unitaire</th><th>Quantité</th><th class="align-right">Sous-total</th></tr></thead>
                     <tbody data-basket-lines>
@@ -76,9 +76,17 @@
                             <td data-label="Sous-total" class="align-right price strong">{{ line.subtotal|floatformat:0 }} FC</td>
                         </tr>
                         {% endfor %}
+                        {% for line in selected.uncatalogued_lines.all %}
+                        <tr>
+                            <td data-label="Article"><span class="product-cell"><strong>{{ line.display_name }}</strong><small>Label modèle : {{ line.detected_label }}</small></span></td>
+                            <td data-label="Prix unitaire" class="price">À définir</td>
+                            <td data-label="Quantité"><span class="quantity-readonly">{{ line.quantity }}</span></td>
+                            <td data-label="Sous-total" class="align-right price strong">—</td>
+                        </tr>
+                        {% endfor %}
                     </tbody>
                 </table>
-                <div class="ledger-empty" data-basket-empty {% if selected.lines.all %}hidden{% endif %}>
+                <div class="ledger-empty" data-basket-empty {% if selected.lines.all or selected.uncatalogued_lines.all %}hidden{% endif %}>
                     <span class="empty-illustration"><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M10 17h28l-2.5 20h-23zM16 17l5-9m11 9-5-9M18 23v7m12-7v7"/></svg></span>
                     <strong>Le panier est encore vide</strong>
                     <p>Un article apparaîtra ici dès que la Raspberry Pi enverra un ajout stable.</p>
@@ -86,7 +94,7 @@
             </div>
 
             <footer class="basket-total-bar">
-                <span><small>Total du panier</small><strong data-basket-total>{{ selected_totals.total|floatformat:0 }} FC</strong></span>
+                <span><small data-basket-total-label>{% if selected_totals.uncatalogued_items %}Total des articles répertoriés{% else %}Total du panier{% endif %}</small><strong data-basket-total>{{ selected_totals.total|floatformat:0 }} FC</strong></span>
                 {% if selected.status == 'CHECKOUT_PENDING' %}
                 <a class="button button-primary" href="{% url 'ui:checkout-detail' selected.id %}">Vérifier à la caisse</a>
                 {% else %}

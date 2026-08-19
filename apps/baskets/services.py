@@ -6,7 +6,7 @@ from apps.catalog.models import VisionLabel
 from apps.devices.models import BasketDevice
 from apps.realtime import publish_basket_event
 
-from .models import BasketLine, BasketSession, DetectionEvent
+from .models import BasketLine, BasketSession, DetectionEvent, UncataloguedBasketLine
 
 
 def _resolve_product(label, model_version):
@@ -20,6 +20,7 @@ def _resolve_product(label, model_version):
 
 
 def detection_result_payload(event, duplicate=False):
+    catalogued = bool(event.product_id)
     return {
         "event_id": str(event.event_id),
         "duplicate": duplicate,
@@ -27,6 +28,13 @@ def detection_result_payload(event, duplicate=False):
         "session_id": str(event.session_id) if event.session_id else None,
         "version": event.resulting_version,
         "line_quantity": event.resulting_line_quantity,
+        "detected_label": event.detected_label,
+        "display_label": (
+            event.product.name
+            if catalogued
+            else f"Objet non répertorié : {event.detected_label}"
+        ),
+        "catalogued": catalogued,
     }
 
 
@@ -101,19 +109,20 @@ def ingest_detection(device, payload):
     if session is None or session.status != BasketSession.Status.OPEN or not session_matches:
         return event, False
 
-    product = _resolve_product(event.detected_label, event.model_version)
-    if product is None or not product.is_active:
-        return event, False
-
-    event.product = product
     expected_version = session.version
-    line = BasketLine.objects.filter(session=session, product=product).first()
+    product = _resolve_product(event.detected_label, event.model_version)
+    catalogued = bool(product and product.is_active)
+    if catalogued:
+        line = BasketLine.objects.filter(session=session, product=product).first()
+    else:
+        line = UncataloguedBasketLine.objects.filter(
+            session=session,
+            detected_label=event.detected_label,
+        ).first()
 
-    if event.action == DetectionEvent.Action.ITEM_REMOVED and (
-        line is None or line.quantity < event.quantity
-    ):
+    if event.action == DetectionEvent.Action.ITEM_REMOVED and (line is None or line.quantity < event.quantity):
         event.result = DetectionEvent.Result.INVALID_REMOVAL
-        event.save(update_fields=("product", "result"))
+        event.save(update_fields=("result",))
         return event, False
 
     changed = BasketSession.objects.filter(
@@ -123,16 +132,37 @@ def ingest_detection(device, payload):
     ).update(version=F("version") + 1, updated_at=timezone.now())
     if changed != 1:
         event.result = DetectionEvent.Result.VERSION_CONFLICT
-        event.save(update_fields=("product", "result"))
+        event.save(update_fields=("result",))
         return event, False
 
-    if event.action == DetectionEvent.Action.ITEM_ADDED:
+    if catalogued:
+        event.product = product
+        if event.action == DetectionEvent.Action.ITEM_ADDED:
+            if line is None:
+                line = BasketLine.objects.create(
+                    session=session,
+                    product=product,
+                    quantity=event.quantity,
+                    unit_price_snapshot=product.price,
+                )
+            else:
+                line.quantity = F("quantity") + event.quantity
+                line.save(update_fields=("quantity", "updated_at"))
+                line.refresh_from_db(fields=("quantity",))
+        else:
+            new_quantity = line.quantity - event.quantity
+            if new_quantity == 0:
+                line.delete()
+                line = None
+            else:
+                line.quantity = new_quantity
+                line.save(update_fields=("quantity", "updated_at"))
+    elif event.action == DetectionEvent.Action.ITEM_ADDED:
         if line is None:
-            line = BasketLine.objects.create(
+            line = UncataloguedBasketLine.objects.create(
                 session=session,
-                product=product,
+                detected_label=event.detected_label,
                 quantity=event.quantity,
-                unit_price_snapshot=product.price,
             )
         else:
             line.quantity = F("quantity") + event.quantity
@@ -148,7 +178,11 @@ def ingest_detection(device, payload):
             line.save(update_fields=("quantity", "updated_at"))
 
     session.version = expected_version + 1
-    event.result = DetectionEvent.Result.APPLIED
+    event.result = (
+        DetectionEvent.Result.APPLIED
+        if catalogued
+        else DetectionEvent.Result.UNCATALOGUED_OBJECT
+    )
     event.resulting_version = session.version
     event.resulting_line_quantity = line.quantity if line else 0
     event.save(

@@ -12,11 +12,17 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
 from api.models import Product
-from apps.baskets.models import BasketLine, BasketSession, DetectionEvent
+from apps.baskets.models import BasketLine, BasketSession, DetectionEvent, UncataloguedBasketLine
 from apps.baskets.selectors import serialize_session, session_with_lines
 from apps.catalog.models import VisionLabel
 from apps.checkout.models import Sale, StockMovement
-from apps.checkout.services import DomainError, complete_sale, correct_line, release_basket
+from apps.checkout.services import (
+    DomainError,
+    complete_sale,
+    correct_line,
+    release_basket,
+    remove_uncatalogued_line,
+)
 from apps.devices.models import BasketDevice
 from apps.wallets.models import RfidEnrollmentRequest
 from apps.wallets.services import (
@@ -33,6 +39,7 @@ from .forms import (
     ReleaseBasketForm,
     RfidEnrollmentApprovalForm,
     RfidEnrollmentRejectionForm,
+    UncataloguedLineRemovalForm,
 )
 
 
@@ -41,7 +48,9 @@ DOMAIN_ERROR_MESSAGES = {
     "basket_locked": "Ce panier a changé d'état. Rechargez-le avant de continuer.",
     "version_conflict": "Le panier a été mis à jour ailleurs. Vérifiez les quantités actuelles.",
     "line_not_found": "Cette ligne n'existe plus dans le panier.",
+    "uncatalogued_line_not_found": "Cet objet non répertorié n'existe plus dans le panier.",
     "empty_basket": "Le panier est vide et ne peut pas être confirmé.",
+    "uncatalogued_objects_pending": "Retirez ou répertoriez les objets inconnus avant de confirmer la vente.",
     "insufficient_stock": "Le stock disponible ne suffit pas pour confirmer cette vente.",
     "session_not_found": "Cette session de panier n'existe plus.",
 }
@@ -93,9 +102,11 @@ RFID_ENROLLMENT_ERROR_MESSAGES = {
 
 def _session_totals(session):
     lines = list(session.lines.all())
+    uncatalogued_lines = list(session.uncatalogued_lines.all())
     return {
-        "items": sum(line.quantity for line in lines),
+        "items": sum(line.quantity for line in lines) + sum(line.quantity for line in uncatalogued_lines),
         "total": sum((line.subtotal for line in lines), Decimal("0")),
+        "uncatalogued_items": sum(line.quantity for line in uncatalogued_lines),
     }
 
 
@@ -110,7 +121,8 @@ def _active_sessions():
         )
         .select_related("device", "selected_terminal")
         .prefetch_related(
-            Prefetch("lines", queryset=BasketLine.objects.select_related("product").order_by("created_at", "id"))
+            Prefetch("lines", queryset=BasketLine.objects.select_related("product").order_by("created_at", "id")),
+            Prefetch("uncatalogued_lines", queryset=UncataloguedBasketLine.objects.order_by("created_at", "id")),
         )
         .order_by("device__matrix_id")
     )
@@ -141,7 +153,7 @@ def dashboard(request):
             "pending_sessions": pending_sessions,
             "low_stock": low_stock,
             "unknown_labels_today": DetectionEvent.objects.filter(
-                received_at__date=today, result=DetectionEvent.Result.UNKNOWN_LABEL
+                received_at__date=today, result=DetectionEvent.Result.UNCATALOGUED_OBJECT
             ).count(),
             "recent_sales": recent_sales,
             "revenue_today": revenue_today,
@@ -259,6 +271,24 @@ def correct_checkout_line(request, session_id, line_id):
         messages.success(request, "La quantité a été corrigée.")
     except DomainError as error:
         messages.error(request, DOMAIN_ERROR_MESSAGES.get(error.code, "La correction n'a pas pu être appliquée."))
+    return redirect("ui:checkout-detail", session_id=session_id)
+
+
+@ui_access_required
+def remove_uncatalogued_checkout_line(request, session_id, line_id):
+    if request.method != "POST" or not _can_correct_basket(request.user):
+        raise PermissionDenied
+    form = UncataloguedLineRemovalForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "Vérifiez les informations de retrait.")
+        return redirect("ui:checkout-detail", session_id=session_id)
+    payload = form.cleaned_data
+    payload["reason"] = payload.get("reason") or "Objet non répertorié retiré après vérification"
+    try:
+        remove_uncatalogued_line(session_id, line_id, request.user, payload)
+        messages.success(request, "L'objet non répertorié a été retiré du panier.")
+    except DomainError as error:
+        messages.error(request, DOMAIN_ERROR_MESSAGES.get(error.code, "Le retrait n'a pas pu être appliqué."))
     return redirect("ui:checkout-detail", session_id=session_id)
 
 

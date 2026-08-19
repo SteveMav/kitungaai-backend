@@ -1,12 +1,19 @@
 from django.contrib import admin
 
-from .models import BasketCorrection, BasketLine, BasketSession, DetectionEvent
+from .models import BasketCorrection, BasketLine, BasketSession, DetectionEvent, UncataloguedBasketLine
 
 
 class BasketLineInline(admin.TabularInline):
     model = BasketLine
     extra = 0
     readonly_fields = ("product", "quantity", "unit_price_snapshot", "created_at", "updated_at")
+    can_delete = False
+
+
+class UncataloguedBasketLineInline(admin.TabularInline):
+    model = UncataloguedBasketLine
+    extra = 0
+    readonly_fields = ("detected_label", "quantity", "created_at", "updated_at")
     can_delete = False
 
 
@@ -27,7 +34,7 @@ class BasketSessionAdmin(admin.ModelAdmin):
         "completed_at",
         "cancelled_at",
     )
-    inlines = (BasketLineInline,)
+    inlines = (BasketLineInline, UncataloguedBasketLineInline)
 
 
 @admin.register(DetectionEvent)

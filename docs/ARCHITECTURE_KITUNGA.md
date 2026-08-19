@@ -165,7 +165,7 @@ Chaque app peut utiliser `services.py` pour les transactions métier et `selecto
 | Agent edge Raspberry | Stabiliser/tracker les objets, produire des événements, piloter la matrice, bufferiser hors ligne | SQLite edge, configuration et secret du panier | Caméra → événements REST ; heartbeat/commandes | Caméra, SPI, Django API | Continue à observer et met en file ; n'invente jamais un ACK |
 | Matrice MAX7219 | Afficher le `matrix_id` stable du panier physique | Aucun état métier | 12 bits visuels | Pi ou microcontrôleur local | L'échec n'altère pas le panier serveur ; caisse peut saisir le numéro manuellement |
 | Scanner ESP32 | Lire/stabiliser le motif et transmettre un scan de caisse | Petite file de scans, identité du terminal | Matrice → `MatrixScanEvent` REST | LAN, Django API | Affiche échec et réessaie ; ne confirme pas une vente |
-| `catalog` | Catalogue, prix, stock courant et labels IA | `Product`, `VisionLabel` | Admin et résolution de label | ORM Django | Label inconnu → événement rejeté/revue humaine |
+| `catalog` | Catalogue, prix, stock courant et labels IA | `Product`, `VisionLabel` | Admin et résolution de label | ORM Django | Label inconnu → objet non répertorié/revue humaine |
 | `devices` | Identités matérielles, présence et commandes | `BasketDevice`, `CheckoutTerminal`, `DeviceCommand` | Auth appareil, heartbeat, ACK | ORM, configuration | Appareil expiré/désactivé refusé |
 | `baskets` | Cycle d'un panier et application idempotente des événements | `BasketSession`, `BasketLine`, `DetectionEvent` | API Pi, lectures UI, notifications | `catalog`, `devices`, Channels | Événement douteux conservé sans modifier les lignes |
 | `checkout` | Scan, verrouillage, correction, vente et stock | `MatrixScanEvent`, `Sale`, `SaleLine`, `StockMovement` | API scanner et actions caissier | `baskets`, `catalog`, `devices` | Transaction annulée intégralement en cas d'erreur |
@@ -247,7 +247,7 @@ Exemple d'événement :
 }
 ```
 
-Réponses d'erreur stables : `401 unauthorized_device`, `404 unknown_label`, `409 basket_locked`, `409 version_conflict`, `422 invalid_event`, `429 rate_limited`.
+Réponses stables : `201 applied`, `201 uncatalogued_object`, `401 unauthorized_device`, `409 basket_locked`, `409 version_conflict`, `422 invalid_event`, `429 rate_limited`.
 
 ### API scanner et caisse
 

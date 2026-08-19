@@ -7,7 +7,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from api.models import Product
-from apps.baskets.models import BasketLine, BasketSession
+from apps.baskets.models import BasketLine, BasketSession, UncataloguedBasketLine
 from apps.catalog.models import VisionLabel
 from apps.checkout.models import Sale
 from apps.devices.models import BasketDevice, CheckoutTerminal
@@ -66,11 +66,11 @@ class IotRfidContractTests(TestCase):
         self.assertEqual(response.status_code, 200)
         return response.json()["basket_id"]
 
-    def add_detection(self, basket_id, key=None):
+    def add_detection(self, basket_id, key=None, label="ESP32"):
         key = key or uuid.uuid4()
         return self.client.post(
             reverse("iot-detection", args=[basket_id]),
-            data={"device_id": self.device.device_code, "label": "ESP32", "confidence": "0.95"},
+            data={"device_id": self.device.device_code, "label": label, "confidence": "0.95"},
             content_type="application/json",
             **self.device_headers(key),
         )
@@ -180,6 +180,17 @@ class IotRfidContractTests(TestCase):
         self.assertEqual(replay.status_code, 200)
         self.assertTrue(replay.json()["duplicate"])
         self.assertEqual(BasketLine.objects.get().quantity, 1)
+
+    def test_iot_detection_keeps_an_uncatalogued_model_object_in_the_basket(self):
+        basket_id = self.start_session()
+
+        response = self.add_detection(basket_id, label="Buzzer")
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["status"], "UNCATALOGUED_OBJECT_ADDED")
+        self.assertFalse(response.json()["catalogued"])
+        self.assertEqual(response.json()["display_label"], "Objet non répertorié : buzzer")
+        self.assertEqual(UncataloguedBasketLine.objects.get().detected_label, "buzzer")
 
     def test_rfid_payment_debits_wallet_and_replay_is_safe(self):
         credit_wallet(wallet_id=self.wallet.id, amount="2000.00", user=None, reason="Test")

@@ -6,7 +6,7 @@ from django.db.models import F
 from django.utils import timezone
 
 from api.models import Product
-from apps.baskets.models import BasketCorrection, BasketLine, BasketSession
+from apps.baskets.models import BasketCorrection, BasketLine, BasketSession, UncataloguedBasketLine
 from apps.baskets.selectors import session_with_lines
 from apps.devices.models import BasketDevice, CheckoutTerminal, DeviceCommand
 from apps.realtime import publish_basket_event, publish_terminal_event
@@ -212,6 +212,44 @@ def correct_line(session_id, line_id, user, payload):
 
 
 @transaction.atomic
+def remove_uncatalogued_line(session_id, line_id, user, payload):
+    session = BasketSession.objects.filter(pk=session_id).first()
+    if session is None:
+        raise DomainError("session_not_found", 404)
+    if session.status != BasketSession.Status.CHECKOUT_PENDING:
+        raise DomainError("basket_locked", 409)
+    if session.version != payload["expected_version"]:
+        raise DomainError("version_conflict", 409, current_version=session.version)
+
+    line = UncataloguedBasketLine.objects.filter(pk=line_id, session=session).first()
+    if line is None:
+        raise DomainError("uncatalogued_line_not_found", 404)
+
+    now = timezone.now()
+    changed = BasketSession.objects.filter(
+        pk=session.pk,
+        status=BasketSession.Status.CHECKOUT_PENDING,
+        version=payload["expected_version"],
+    ).update(version=F("version") + 1, updated_at=now)
+    if changed != 1:
+        raise DomainError("version_conflict", 409)
+
+    BasketCorrection.objects.create(
+        session=session,
+        line_id=line.id,
+        author=user,
+        action="REMOVE_UNCATALOGUED_LINE",
+        reason=payload["reason"],
+        before={"detected_label": line.detected_label, "quantity": line.quantity},
+        after={},
+    )
+    line.delete()
+    session = session_with_lines(session.id)
+    transaction.on_commit(lambda: publish_basket_event(session))
+    return session
+
+
+@transaction.atomic
 def release_basket(session_id, user, payload):
     session = BasketSession.objects.filter(pk=session_id).first()
     if session is None:
@@ -317,6 +355,8 @@ def complete_sale(session_id, user, idempotency_key, payload, *, payment_device=
     if session.version != payload["expected_version"]:
         raise DomainError("version_conflict", 409, current_version=session.version)
 
+    if session.uncatalogued_lines.exists():
+        raise DomainError("uncatalogued_objects_pending", 422)
     lines = list(session.lines.all())
     if not lines:
         raise DomainError("empty_basket", 422)

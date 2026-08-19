@@ -89,6 +89,48 @@ class BasketLine(models.Model):
         return f"{self.quantity} × {self.product.name}"
 
 
+class UncataloguedBasketLine(models.Model):
+    """A model-detected object that has no sellable product in the catalogue yet."""
+
+    session = models.ForeignKey(
+        BasketSession,
+        on_delete=models.CASCADE,
+        related_name="uncatalogued_lines",
+    )
+    detected_label = models.CharField(max_length=128)
+    quantity = models.PositiveIntegerField(validators=(MinValueValidator(1), MaxValueValidator(999)))
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("created_at", "id")
+        constraints = [
+            models.UniqueConstraint(
+                fields=("session", "detected_label"),
+                name="baskets_unique_uncatalogued_label_per_session",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(quantity__gt=0),
+                name="baskets_uncatalogued_line_quantity_positive",
+            ),
+        ]
+
+    @property
+    def display_name(self):
+        return f"Objet non répertorié : {self.detected_label}"
+
+    @property
+    def subtotal(self):
+        return 0
+
+    def save(self, *args, **kwargs):
+        self.detected_label = self.detected_label.strip().lower()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.quantity} × {self.display_name}"
+
+
 class DetectionEvent(models.Model):
     class Action(models.TextChoices):
         ITEM_ADDED = "ITEM_ADDED", "Article ajouté"
@@ -96,6 +138,7 @@ class DetectionEvent(models.Model):
 
     class Result(models.TextChoices):
         APPLIED = "APPLIED", "Appliqué"
+        UNCATALOGUED_OBJECT = "UNCATALOGUED_OBJECT", "Objet non répertorié ajouté"
         UNKNOWN_LABEL = "UNKNOWN_LABEL", "Label inconnu"
         BASKET_LOCKED = "BASKET_LOCKED", "Panier verrouillé"
         RESET_PENDING = "RESET_PENDING", "Reset en attente"

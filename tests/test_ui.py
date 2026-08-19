@@ -7,7 +7,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from api.models import Product
-from apps.baskets.models import BasketLine, BasketSession
+from apps.baskets.models import BasketLine, BasketSession, UncataloguedBasketLine
 from apps.catalog.models import VisionLabel
 from apps.checkout.models import Sale, StockMovement
 from apps.devices.models import BasketDevice, CheckoutTerminal
@@ -100,6 +100,45 @@ class KitungaUiTests(TestCase):
         payload = response.json()
         self.assertEqual(payload["lines"][0]["product"]["sku"], "ARD-MEGA")
         self.assertNotIn("barcode", payload["lines"][0]["product"])
+
+    def test_live_basket_payload_includes_uncatalogued_objects_without_a_price(self):
+        UncataloguedBasketLine.objects.create(
+            session=self.session,
+            detected_label="buzzer",
+            quantity=1,
+        )
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("ui:basket-data", args=[self.session.id]))
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        unknown_line = next(line for line in payload["lines"] if not line["catalogued"])
+        self.assertEqual(unknown_line["product"]["name"], "Objet non répertorié : buzzer")
+        self.assertEqual(unknown_line["unit_price"], "0")
+        self.assertEqual(payload["item_count"], 3)
+        self.assertEqual(payload["uncatalogued_item_count"], 1)
+
+    def test_cashier_can_remove_an_uncatalogued_object_before_confirming_sale(self):
+        unknown_line = UncataloguedBasketLine.objects.create(
+            session=self.session,
+            detected_label="buzzer",
+            quantity=1,
+        )
+        self.session.status = BasketSession.Status.CHECKOUT_PENDING
+        self.session.selected_terminal = self.terminal
+        self.session.save(update_fields=("status", "selected_terminal", "updated_at"))
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("ui:remove-uncatalogued-line", args=[self.session.id, unknown_line.id]),
+            data={
+                "expected_version": self.session.version,
+                "reason": "Article vérifié hors catalogue",
+            },
+        )
+
+        self.assertRedirects(response, reverse("ui:checkout-detail", args=[self.session.id]))
+        self.assertFalse(UncataloguedBasketLine.objects.exists())
 
     def test_checkout_confirmation_decrements_stock(self):
         self.session.status = BasketSession.Status.CHECKOUT_PENDING
