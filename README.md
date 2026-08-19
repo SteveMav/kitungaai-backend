@@ -2,7 +2,7 @@
 
 API et interface Django du système de panier intelligent Kitunga AI.
 
-Backend Django local pour suivre les paniers physiques, vérifier leur contenu à la caisse et gérer un stock simple. Le projet n'utilise aucun code-barres : la caméra envoie un **label IA**, tandis que la matrice du panier sert uniquement à sélectionner le bon panier à la caisse.
+Backend Django local pour suivre les paniers physiques, vérifier leur contenu à la caisse et gérer un stock simple. Le projet n'utilise aucun code-barres : la caméra envoie un **label IA** et la carte RFID identifie puis peut confirmer le paiement du même panier.
 
 ## Démarrage rapide sous Windows PowerShell
 
@@ -72,8 +72,8 @@ Rafraîchissez ensuite la page **Caisse**.
 1. **Stock** : Django conserve le nom, le SKU, le prix, la quantité et les labels reconnus par la caméra.
 2. **Panier** : la Raspberry Pi ouvre une session et envoie des événements `ITEM_ADDED` ou `ITEM_REMOVED`.
 3. **Direct** : la page Paniers recharge le contenu après chaque événement WebSocket.
-4. **Caisse** : le scan de la matrice sélectionne et verrouille le panier, sans facturer automatiquement.
-5. **Confirmation** : le caissier corrige si nécessaire, confirme la vente, puis le stock est décrémenté.
+4. **Confirmation manuelle** : depuis **Paniers**, le caissier verrouille un panier actif, le corrige si nécessaire, puis confirme la vente.
+5. **Paiement RFID** : le client peut aussi retirer puis présenter à nouveau la même carte pendant que son panier est actif ; Django vérifie l'identité et le solde, puis finalise la vente.
 6. **Nouveau cycle** : Django demande à la Raspberry Pi de réinitialiser le panier.
 
 ## Cartes RFID et wallets
@@ -116,4 +116,4 @@ Windows doit autoriser les connexions entrantes TCP sur le port `8000`.
 
 La documentation des équipements et des endpoints se trouve dans [docs/API_V1.md](docs/API_V1.md). La décision d'architecture complète se trouve dans [docs/ARCHITECTURE_KITUNGA.md](docs/ARCHITECTURE_KITUNGA.md).
 
-Pour intervenir directement sur la Raspberry Pi et le scanner ESP32, suivre la procédure terrain dans [docs/GUIDE_RASPBERRY_PI_ESP32.md](docs/GUIDE_RASPBERRY_PI_ESP32.md).
+Le scanner ESP32 reste documenté uniquement pour la compatibilité dans [docs/GUIDE_RASPBERRY_PI_ESP32.md](docs/GUIDE_RASPBERRY_PI_ESP32.md) ; il n'est plus nécessaire pour confirmer un panier.

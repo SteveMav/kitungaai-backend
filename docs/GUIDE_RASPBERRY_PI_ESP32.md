@@ -1,6 +1,10 @@
-# Guide terrain — Raspberry Pi et scanner ESP32
+# Guide historique — Raspberry Pi et scanner ESP32
 
-Ce guide décrit ce qu'il faut faire devant le matériel pour connecter le code déjà installé à l'API Kitunga V1.
+Ce guide décrit l'ancien parcours de validation par scanner ESP32. Le flux
+courant ne requiert plus ce matériel : le backend peut verrouiller et
+confirmer un panier manuellement depuis **Paniers**, ou la seconde lecture de
+la même carte RFID peut confirmer son paiement. Conservez ce document
+uniquement si un scanner ESP32 déjà déployé doit rester compatible.
 
 > Important : le dépôt actuel contient le backend Django, mais pas le code source de la Raspberry Pi ni le firmware `.ino`/`.cpp` de l'ESP32. Les contrats API ci-dessous correspondent au backend réellement implémenté et testé. Le code matériel devra être comparé à ces contrats sur place.
 

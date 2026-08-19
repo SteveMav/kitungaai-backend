@@ -84,6 +84,10 @@ class UncataloguedLineRemovalForm(forms.Form):
     )
 
 
+class BeginManualCheckoutForm(forms.Form):
+    expected_version = forms.IntegerField(widget=forms.HiddenInput)
+
+
 class CompleteSaleForm(forms.Form):
     PAYMENT_METHODS = (
         ("CASH", "Espèces"),

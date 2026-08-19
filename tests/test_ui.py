@@ -158,3 +158,18 @@ class KitungaUiTests(TestCase):
         self.product.refresh_from_db()
         self.assertEqual(self.product.stock, 8)
         self.assertEqual(Sale.objects.count(), 1)
+
+    def test_backend_can_prepare_an_active_basket_for_manual_checkout(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("ui:begin-manual-checkout", args=[self.session.id]),
+            data={"expected_version": self.session.version},
+        )
+
+        self.assertRedirects(response, reverse("ui:checkout-detail", args=[self.session.id]))
+        self.session.refresh_from_db()
+        self.assertEqual(self.session.status, BasketSession.Status.CHECKOUT_PENDING)
+        self.assertIsNone(self.session.selected_terminal)
+        checkout_page = self.client.get(reverse("ui:checkout-detail", args=[self.session.id]))
+        self.assertContains(checkout_page, "Confirmer la vente")

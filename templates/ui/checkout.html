@@ -24,7 +24,7 @@
             <div class="empty-master">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5h14v13H5zM8 9h8m-8 3h3m4 0h1m-8 3h3m4 0h1"/></svg>
                 <strong>La file est vide</strong>
-                <p>Un panier apparaîtra ici après le scan de sa matrice.</p>
+                <p>Un panier apparaîtra ici après sa sélection manuelle depuis la page Paniers.</p>
             </div>
             {% endfor %}
         </div>
@@ -123,7 +123,7 @@
             <span class="empty-illustration"><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M10 9h28v30H10zM16 17h16m-16 7h8m4 0h4m-16 7h8m4 0h4"/></svg></span>
             <p class="eyebrow">Caisse disponible</p>
             <h2>Aucun panier à vérifier</h2>
-            <p>Le scanner lit la matrice du panier, puis Django le place ici. Rien n'est facturé automatiquement.</p>
+            <p>Sélectionnez un panier depuis la page Paniers pour le vérifier ici. Rien n'est facturé automatiquement.</p>
             <a class="button button-secondary" href="{% url 'ui:baskets' %}">Voir les paniers ouverts</a>
         </div>
         {% endif %}

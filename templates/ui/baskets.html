@@ -97,8 +97,14 @@
                 <span><small data-basket-total-label>{% if selected_totals.uncatalogued_items %}Total des articles répertoriés{% else %}Total du panier{% endif %}</small><strong data-basket-total>{{ selected_totals.total|floatformat:0 }} FC</strong></span>
                 {% if selected.status == 'CHECKOUT_PENDING' %}
                 <a class="button button-primary" href="{% url 'ui:checkout-detail' selected.id %}">Vérifier à la caisse</a>
+                {% elif can_complete %}
+                <form method="post" action="{% url 'ui:begin-manual-checkout' selected.id %}" data-confirm="Verrouiller ce panier pour le vérifier et le confirmer manuellement ? Les détections seront suspendues.">
+                    {% csrf_token %}
+                    <input type="hidden" name="expected_version" value="{{ selected.version }}">
+                    <button class="button button-primary" type="submit">Vérifier et confirmer</button>
+                </form>
                 {% else %}
-                <span class="total-help">Le scan de la matrice l'enverra à la caisse.</span>
+                <span class="total-help">Un caissier peut l'envoyer en vérification depuis cette page.</span>
                 {% endif %}
             </footer>
         </div>

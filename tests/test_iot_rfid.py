@@ -10,6 +10,7 @@ from api.models import Product
 from apps.baskets.models import BasketLine, BasketSession, UncataloguedBasketLine
 from apps.catalog.models import VisionLabel
 from apps.checkout.models import Sale
+from apps.checkout.services import complete_sale
 from apps.devices.models import BasketDevice, CheckoutTerminal
 from apps.wallets.models import (
     Customer,
@@ -192,9 +193,12 @@ class IotRfidContractTests(TestCase):
         self.assertEqual(response.json()["display_label"], "Objet non répertorié : buzzer")
         self.assertEqual(UncataloguedBasketLine.objects.get().detected_label, "buzzer")
 
-    def test_rfid_payment_debits_wallet_and_replay_is_safe(self):
+    def test_second_scan_of_the_active_customer_card_pays_without_matrix_scan(self):
         credit_wallet(wallet_id=self.wallet.id, amount="2000.00", user=None, reason="Test")
-        basket_id, _session = self.prepare_checkout()
+        basket_id = self.start_session()
+        self.assertEqual(self.add_detection(basket_id).status_code, 201)
+        session = BasketSession.objects.get(pk=basket_id)
+        self.assertEqual(session.status, BasketSession.Status.OPEN)
         key = uuid.uuid4()
         first = self.payment(basket_id, key=key)
         replay = self.payment(basket_id, key=key)
@@ -204,6 +208,7 @@ class IotRfidContractTests(TestCase):
         reset_command_id = first.json()["reset_command_id"]
         self.assertEqual(replay.status_code, 200)
         self.assertTrue(replay.json()["duplicate"])
+        self.assertEqual(replay.json()["reset_command_id"], reset_command_id)
         self.wallet.refresh_from_db()
         self.product.refresh_from_db()
         self.assertEqual(self.wallet.balance, Decimal("500.00"))
@@ -223,8 +228,10 @@ class IotRfidContractTests(TestCase):
         next_basket_id = self.start_session()
         self.assertNotEqual(next_basket_id, basket_id)
 
-    def test_insufficient_funds_keeps_wallet_stock_and_basket_unchanged(self):
-        basket_id, session = self.prepare_checkout()
+    def test_insufficient_funds_keeps_an_active_wallet_stock_and_basket_unchanged(self):
+        basket_id = self.start_session()
+        self.assertEqual(self.add_detection(basket_id).status_code, 201)
+        session = BasketSession.objects.get(pk=basket_id)
         response = self.payment(basket_id)
         self.assertEqual(response.status_code, 402)
         self.assertEqual(response.json()["status"], "INSUFFICIENT_FUNDS")
@@ -233,7 +240,7 @@ class IotRfidContractTests(TestCase):
         session.refresh_from_db()
         self.assertEqual(self.wallet.balance, Decimal("0.00"))
         self.assertEqual(self.product.stock, 4)
-        self.assertEqual(session.status, BasketSession.Status.CHECKOUT_PENDING)
+        self.assertEqual(session.status, BasketSession.Status.OPEN)
         self.assertFalse(Sale.objects.exists())
         self.assertFalse(WalletTransaction.objects.filter(kind=WalletTransaction.Kind.RFID_PAYMENT).exists())
 
@@ -246,3 +253,29 @@ class IotRfidContractTests(TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json()["status"], "RFID_MISMATCH")
         self.assertFalse(Sale.objects.exists())
+
+    def test_paid_status_exposes_the_reset_command_after_manual_confirmation(self):
+        basket_id = self.start_session()
+        self.assertEqual(self.add_detection(basket_id).status_code, 201)
+        session = BasketSession.objects.get(pk=basket_id)
+        session.status = BasketSession.Status.CHECKOUT_PENDING
+        session.save(update_fields=("status", "updated_at"))
+        complete_sale(
+            session.id,
+            None,
+            uuid.uuid4(),
+            {
+                "expected_version": session.version,
+                "payment_method": "CASH",
+                "payment_status": Sale.PaymentStatus.PAID,
+            },
+        )
+
+        status_response = self.client.get(
+            reverse("iot-basket-status", args=[basket_id]),
+            **self.device_headers(),
+        )
+
+        self.assertEqual(status_response.status_code, 200)
+        self.assertEqual(status_response.json()["status"], "PAID")
+        self.assertIn("reset_command_id", status_response.json())

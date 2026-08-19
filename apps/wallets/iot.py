@@ -274,7 +274,21 @@ class BasketStatusView(BasketIoTView):
         session, error = self.session_or_response(request, basket_id)
         if error:
             return error
-        return Response({"status": _basket_status(session), "basket_id": str(session.id)})
+        payload = {"status": _basket_status(session), "basket_id": str(session.id)}
+        if session.status == BasketSession.Status.COMPLETED:
+            command = (
+                DeviceCommand.objects.filter(
+                    device=session.device,
+                    command_type=DeviceCommand.Type.RESET_SESSION,
+                    session_id=session.id,
+                    status=DeviceCommand.Status.PENDING,
+                )
+                .order_by("created_at")
+                .first()
+            )
+            if command is not None:
+                payload["reset_command_id"] = str(command.id)
+        return Response(payload)
 
 
 class RfidPaymentView(BasketIoTView):
@@ -305,16 +319,36 @@ class RfidPaymentView(BasketIoTView):
         existing = Sale.objects.filter(session=session).first()
         if existing is not None:
             if existing.payment_method == "RFID" and existing.payment_status == Sale.PaymentStatus.PAID:
-                return Response({"status": "PAID", "payment_status": "PAID", "basket_id": str(session.id), "duplicate": True})
+                command = (
+                    DeviceCommand.objects.filter(
+                        device=request.auth,
+                        command_type=DeviceCommand.Type.RESET_SESSION,
+                        session_id=session.id,
+                    )
+                    .order_by("created_at")
+                    .first()
+                )
+                return Response(
+                    {
+                        "status": "PAID",
+                        "payment_status": "PAID",
+                        "basket_id": str(session.id),
+                        "reset_command_id": str(command.id) if command is not None else None,
+                        "duplicate": True,
+                    }
+                )
             return _message_response(
                 code="PAYMENT_DECLINED",
                 message="This basket was already settled by another payment method.",
                 http_status=status.HTTP_409_CONFLICT,
             )
-        if session.status != BasketSession.Status.CHECKOUT_PENDING:
+        if session.status not in (
+            BasketSession.Status.OPEN,
+            BasketSession.Status.CHECKOUT_PENDING,
+        ):
             return _message_response(
                 code="CHECKOUT_REQUIRED",
-                message="The basket must be validated at checkout before payment.",
+                message="The basket is no longer available for payment.",
                 http_status=status.HTTP_409_CONFLICT,
             )
         card = (
@@ -348,10 +382,33 @@ class RfidPaymentView(BasketIoTView):
                 message="The basket is empty.",
                 http_status=status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
+
+        if session.status == BasketSession.Status.OPEN:
+            now = timezone.now()
+            changed = BasketSession.objects.filter(
+                pk=session.pk,
+                status=BasketSession.Status.OPEN,
+                version=session.version,
+            ).update(
+                status=BasketSession.Status.CHECKOUT_PENDING,
+                version=F("version") + 1,
+                checkout_started_at=now,
+                updated_at=now,
+            )
+            if changed != 1:
+                return _message_response(
+                    code="CHECKOUT_REQUIRED",
+                    message="The basket changed before RFID payment could be confirmed.",
+                    http_status=status.HTTP_409_CONFLICT,
+                )
+            session.status = BasketSession.Status.CHECKOUT_PENDING
+            session.version += 1
+
         debited = Wallet.objects.filter(pk=wallet.pk, balance__gte=total).update(
             balance=F("balance") - total
         )
         if debited != 1:
+            transaction.set_rollback(True)
             return _message_response(
                 code="INSUFFICIENT_FUNDS",
                 message="Wallet balance is insufficient.",

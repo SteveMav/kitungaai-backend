@@ -1,6 +1,6 @@
 # API backend Kitunga V1
 
-L'API V1 est servie sous `/api/v1`. Les URLs n'ont volontairement pas de slash final afin de simplifier les clients ESP32/Raspberry Pi. Django/SQLite reste la source autoritative des paniers, prix, ventes et stocks.
+L'API V1 est servie sous `/api/v1`. Les URLs n'ont volontairement pas de slash final afin de simplifier les clients matériels. Django/SQLite reste la source autoritative des paniers, prix, ventes et stocks.
 
 ## Mise en route
 
@@ -14,7 +14,7 @@ L'API V1 est servie sous `/api/v1`. Les URLs n'ont volontairement pas de slash f
 
 Les commandes de provisionnement affichent le secret une seule fois. Installer ce secret sur l'équipement et ne jamais l'enregistrer dans Git ou dans les logs. Les labels IA sont associés explicitement aux produits dans l'administration Django (`VisionLabel`).
 
-Le guide d'installation et de validation devant le matériel se trouve dans [`GUIDE_RASPBERRY_PI_ESP32.md`](GUIDE_RASPBERRY_PI_ESP32.md).
+Le guide historique du scanner ESP32 se trouve dans [`GUIDE_RASPBERRY_PI_ESP32.md`](GUIDE_RASPBERRY_PI_ESP32.md) ; le flux courant ne l'exige plus.
 
 ## Authentification
 
@@ -31,7 +31,7 @@ Le guide d'installation et de validation devant le matériel se trouve dans [`GU
 | `POST` | `/api/v1/devices/{device_code}/events` | Raspberry Pi |
 | `POST` | `/api/v1/devices/{device_code}/commands/{command_id}/ack` | Raspberry Pi |
 | `GET` | `/api/v1/devices/{device_code}/state` | Raspberry Pi |
-| `POST` | `/api/v1/checkout/scans` | Scanner ESP32 |
+| `POST` | `/api/v1/checkout/scans` | Scanner ESP32 (compatibilité, optionnel) |
 | `GET` | `/api/v1/cashier/sessions/{session_id}` | Caissier |
 | `PATCH` | `/api/v1/cashier/sessions/{session_id}/lines/{line_id}` | Caissier |
 | `POST` | `/api/v1/cashier/sessions/{session_id}/complete` | Caissier |
@@ -93,6 +93,11 @@ calculés par Django.
 
 Après un paiement RFID, la réponse fournit `reset_command_id`. La Pi acquitte
 cette commande sur l'endpoint V1 existant avant d'ouvrir la session suivante.
+
+Le second passage de la même carte peut payer un panier encore `ACTIVE`, sans
+scan ESP32. Sinon, un utilisateur autorisé ouvre le panier depuis **Paniers**
+pour sa vérification et sa confirmation manuelles ; il passe alors à
+`CHECKOUT_PENDING` et les détections sont suspendues.
 
 Une carte inconnue reçoit désormais `202` avec `status: RFID_ENROLLMENT_PENDING`.
 Django crée alors une demande à traiter par un administrateur dans l'interface
