@@ -100,7 +100,6 @@
                         {{ complete_form.expected_version }}
                         {{ complete_form.idempotency_key }}
                         <div class="field-group"><label for="{{ complete_form.payment_method.id_for_label }}">{{ complete_form.payment_method.label }}</label>{{ complete_form.payment_method }}</div>
-                        <div class="field-group"><label for="{{ complete_form.payment_status.id_for_label }}">{{ complete_form.payment_status.label }}</label>{{ complete_form.payment_status }}</div>
                         <button class="button button-primary button-full" type="submit" {% if not selected.lines.all or selected.uncatalogued_lines.all %}disabled{% endif %}>Confirmer et mettre à jour le stock</button>
                     </form>
                     {% endif %}

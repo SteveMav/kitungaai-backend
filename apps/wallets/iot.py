@@ -15,7 +15,7 @@ from apps.checkout.models import Sale
 from apps.checkout.services import DomainError, complete_sale
 from apps.devices.authentication import BasketDeviceAuthentication
 from apps.devices.models import BasketDevice, DeviceCommand
-from apps.devices.services import active_session_for_device, process_heartbeat
+from apps.devices.services import active_session_for_device
 from apps.devices.throttles import DeviceRateThrottle
 
 from .models import RfidCard, RfidEnrollmentRequest, Wallet, WalletTransaction
@@ -31,16 +31,6 @@ def _request_key(request):
         return uuid.UUID(request.headers.get("Idempotency-Key", ""))
     except (TypeError, ValueError):
         return None
-
-
-def _assert_device(request, payload):
-    if payload.get("device_id") != request.auth.device_code:
-        return _message_response(
-            code="DEVICE_MISMATCH",
-            message="The request device does not match the authenticated device.",
-            http_status=status.HTTP_403_FORBIDDEN,
-        )
-    return None
 
 
 def _basket_status(session):
@@ -62,10 +52,7 @@ class IoTAPIView(APIView):
 
 
 class StartSessionView(IoTAPIView):
-    def post(self, request):
-        device_error = _assert_device(request, request.data)
-        if device_error:
-            return device_error
+    def post(self, request, device_code):
         raw_uid = request.data.get("rfid_uid")
         if not isinstance(raw_uid, str) or not raw_uid.strip():
             return _message_response(
@@ -124,20 +111,24 @@ class StartSessionView(IoTAPIView):
             )
 
         with transaction.atomic():
-            device, session, _command = process_heartbeat(request.auth, {})
-            if session is None:
+            device = BasketDevice.objects.select_for_update().get(pk=request.auth.pk)
+            BasketDevice.objects.filter(pk=device.pk).update(last_seen_at=timezone.now())
+            if device.reset_state != BasketDevice.ResetState.READY:
                 return _message_response(
                     code="DEVICE_RESET_PENDING",
                     message="The device must acknowledge its reset before a new session.",
                     http_status=status.HTTP_409_CONFLICT,
                 )
-            session = BasketSession.objects.select_for_update().get(pk=session.pk)
-            if session.status != BasketSession.Status.OPEN:
-                return _message_response(
-                    code="SESSION_ALREADY_ACTIVE",
-                    message="The device already has a session waiting for checkout.",
-                    http_status=status.HTTP_409_CONFLICT,
+            session = (
+                BasketSession.objects.select_for_update()
+                .filter(
+                    device=device,
+                    status__in=(BasketSession.Status.OPEN, BasketSession.Status.CHECKOUT_PENDING),
                 )
+                .first()
+            )
+            if session is None:
+                session = BasketSession.objects.create(device=device, customer=card.customer)
             if session.customer_id and session.customer_id != card.customer_id:
                 return _message_response(
                     code="SESSION_ALREADY_ACTIVE",
@@ -156,34 +147,33 @@ class StartSessionView(IoTAPIView):
 
         return Response(
             {
-                "status": "ACTIVE",
-                "basket_id": str(session.id),
+                "status": _basket_status(session),
                 "customer": _customer_payload(card.customer),
             }
         )
 
 
 class BasketIoTView(IoTAPIView):
-    def session_or_response(self, request, basket_id):
+    def session_or_response(self, request):
         session = (
             BasketSession.objects.select_related("device", "customer")
-            .filter(pk=basket_id, device=request.auth)
+            .filter(
+                device=request.auth,
+                status__in=(BasketSession.Status.OPEN, BasketSession.Status.CHECKOUT_PENDING),
+            )
             .first()
         )
         if session is None:
             return None, _message_response(
-                code="BASKET_NOT_FOUND",
-                message="Basket not found for this device.",
-                http_status=status.HTTP_404_NOT_FOUND,
+                code="NO_ACTIVE_INVOICE",
+                message="No active invoice exists for this device.",
+                http_status=status.HTTP_409_CONFLICT,
             )
         return session, None
 
 
 class SendDetectionView(BasketIoTView):
-    def post(self, request, basket_id):
-        device_error = _assert_device(request, request.data)
-        if device_error:
-            return device_error
+    def post(self, request, device_code):
         event_id = _request_key(request)
         if event_id is None:
             return _message_response(
@@ -210,7 +200,7 @@ class SendDetectionView(BasketIoTView):
                 http_status=status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
 
-        session, error = self.session_or_response(request, basket_id)
+        session, error = self.session_or_response(request)
         if error:
             return error
         if not session.customer_id:
@@ -247,7 +237,6 @@ class SendDetectionView(BasketIoTView):
                         if event.result == DetectionEvent.Result.APPLIED
                         else "UNCATALOGUED_OBJECT_ADDED"
                     ),
-                    "basket_id": str(session.id),
                     "label": event.detected_label,
                     "accepted": True,
                     "duplicate": duplicate,
@@ -270,39 +259,64 @@ class SendDetectionView(BasketIoTView):
 
 
 class BasketStatusView(BasketIoTView):
-    def get(self, request, basket_id):
-        session, error = self.session_or_response(request, basket_id)
-        if error:
-            return error
-        payload = {"status": _basket_status(session), "basket_id": str(session.id)}
-        if session.status == BasketSession.Status.COMPLETED:
-            command = (
-                DeviceCommand.objects.filter(
-                    device=session.device,
-                    command_type=DeviceCommand.Type.RESET_SESSION,
-                    session_id=session.id,
-                    status=DeviceCommand.Status.PENDING,
-                )
-                .order_by("created_at")
-                .first()
+    def get(self, request, device_code):
+        command = (
+            DeviceCommand.objects.filter(
+                device=request.auth,
+                command_type=DeviceCommand.Type.RESET_SESSION,
+                status=DeviceCommand.Status.PENDING,
             )
-            if command is not None:
-                payload["reset_command_id"] = str(command.id)
-        return Response(payload)
+            .order_by("created_at")
+            .first()
+        )
+        if command is not None:
+            sale = Sale.objects.filter(session_id=command.session_id).first()
+            return Response(
+                {
+                    "status": "PAID",
+                    "payment_status": "PAID",
+                    "sale_number": sale.sale_number if sale is not None else None,
+                    "reset_command_id": str(command.id),
+                }
+            )
+
+        session = active_session_for_device(request.auth)
+        if session is None:
+            return Response({"status": "IDLE"})
+        return Response({"status": _basket_status(session)})
 
 
 class RfidPaymentView(BasketIoTView):
     @transaction.atomic
-    def post(self, request, basket_id):
-        device_error = _assert_device(request, request.data)
-        if device_error:
-            return device_error
+    def post(self, request, device_code):
         key = _request_key(request)
         if key is None:
             return _message_response(
                 code="INVALID_IDEMPOTENCY_KEY",
                 message="Idempotency-Key must be a UUID.",
                 http_status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+        previous_sale = Sale.objects.filter(idempotency_key=key).first()
+        if previous_sale is not None:
+            if previous_sale.payment_device_id != request.auth.id:
+                return _message_response(
+                    code="IDEMPOTENCY_KEY_CONFLICT",
+                    message="This payment key belongs to another device.",
+                    http_status=status.HTTP_409_CONFLICT,
+                )
+            command = DeviceCommand.objects.filter(
+                device=request.auth,
+                command_type=DeviceCommand.Type.RESET_SESSION,
+                session_id=previous_sale.session_id,
+            ).first()
+            return Response(
+                {
+                    "status": "PAID",
+                    "payment_status": "PAID",
+                    "sale_number": previous_sale.sale_number,
+                    "reset_command_id": str(command.id) if command is not None else None,
+                    "duplicate": True,
+                }
             )
         raw_uid = request.data.get("rfid_uid")
         if not isinstance(raw_uid, str) or not raw_uid.strip():
@@ -312,7 +326,7 @@ class RfidPaymentView(BasketIoTView):
                 http_status=status.HTTP_400_BAD_REQUEST,
             )
         uid = normalize_rfid_uid(raw_uid)
-        session, error = self.session_or_response(request, basket_id)
+        session, error = self.session_or_response(request)
         if error:
             return error
         session = BasketSession.objects.select_for_update().select_related("customer").get(pk=session.pk)
@@ -332,7 +346,7 @@ class RfidPaymentView(BasketIoTView):
                     {
                         "status": "PAID",
                         "payment_status": "PAID",
-                        "basket_id": str(session.id),
+                        "sale_number": existing.sale_number,
                         "reset_command_id": str(command.id) if command is not None else None,
                         "duplicate": True,
                     }
@@ -448,7 +462,7 @@ class RfidPaymentView(BasketIoTView):
             {
                 "status": "PAID",
                 "payment_status": "PAID",
-                "basket_id": str(session.id),
+                "sale_number": sale.sale_number,
                 "reset_command_id": str(command.id),
             }
         )

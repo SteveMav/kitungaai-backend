@@ -8,7 +8,7 @@ class BasketDeviceAdmin(admin.ModelAdmin):
     list_display = ("device_code", "matrix_id", "enabled", "reset_state", "last_seen_at")
     list_filter = ("enabled", "reset_state")
     search_fields = ("device_code",)
-    readonly_fields = ("credential_hash", "last_seen_at", "created_at", "updated_at")
+    readonly_fields = ("last_seen_at", "created_at", "updated_at")
 
     def has_add_permission(self, request):
         return False

@@ -23,14 +23,11 @@ from apps.wallets.services import credit_wallet
 
 
 class IotRfidContractTests(TestCase):
-    device_secret = "device-secret-for-iot-rfid-tests"
     terminal_secret = "terminal-secret-for-iot-rfid-tests"
     card_uid = "04A732B19C"
 
     def setUp(self):
-        self.device = BasketDevice(device_code="KITUNGA-PI-001", matrix_id=101)
-        self.device.set_secret(self.device_secret)
-        self.device.save()
+        self.device = BasketDevice.objects.create(device_code="KITUNGA-PI-001", matrix_id=101)
         self.terminal = CheckoutTerminal(terminal_code="CAISSE-01")
         self.terminal.set_secret(self.terminal_secret)
         self.terminal.save()
@@ -43,10 +40,7 @@ class IotRfidContractTests(TestCase):
         RfidCard.objects.create(customer=self.customer, uid=self.card_uid)
 
     def device_headers(self, key=None):
-        headers = {
-            "HTTP_AUTHORIZATION": f"Device {self.device_secret}",
-            "HTTP_X_DEVICE_CODE": self.device.device_code,
-        }
+        headers = {}
         if key:
             headers["HTTP_IDEMPOTENCY_KEY"] = str(key)
         return headers
@@ -59,19 +53,23 @@ class IotRfidContractTests(TestCase):
 
     def start_session(self):
         response = self.client.post(
-            reverse("iot-session-start"),
-            data={"device_id": self.device.device_code, "rfid_uid": self.card_uid},
+            reverse("iot-session-start", args=[self.device.device_code]),
+            data={"rfid_uid": self.card_uid},
             content_type="application/json",
             **self.device_headers(),
         )
         self.assertEqual(response.status_code, 200)
-        return response.json()["basket_id"]
+        self.assertNotIn("basket_id", response.json())
+        return BasketSession.objects.get(
+            device=self.device,
+            status__in=(BasketSession.Status.OPEN, BasketSession.Status.CHECKOUT_PENDING),
+        ).id
 
     def add_detection(self, basket_id, key=None, label="ESP32"):
         key = key or uuid.uuid4()
         return self.client.post(
-            reverse("iot-detection", args=[basket_id]),
-            data={"device_id": self.device.device_code, "label": label, "confidence": "0.95"},
+            reverse("iot-detection", args=[self.device.device_code]),
+            data={"label": label, "confidence": "0.95"},
             content_type="application/json",
             **self.device_headers(key),
         )
@@ -95,8 +93,8 @@ class IotRfidContractTests(TestCase):
     def payment(self, basket_id, uid=None, key=None):
         key = key or uuid.uuid4()
         return self.client.post(
-            reverse("iot-rfid-payment", args=[basket_id]),
-            data={"device_id": self.device.device_code, "rfid_uid": uid or self.card_uid},
+            reverse("iot-rfid-payment", args=[self.device.device_code]),
+            data={"rfid_uid": uid or self.card_uid},
             content_type="application/json",
             **self.device_headers(key),
         )
@@ -112,8 +110,8 @@ class IotRfidContractTests(TestCase):
 
     def test_unknown_rfid_creates_a_pending_admin_request_without_a_basket(self):
         response = self.client.post(
-            reverse("iot-session-start"),
-            data={"device_id": self.device.device_code, "rfid_uid": "DEADBEEF"},
+            reverse("iot-session-start", args=[self.device.device_code]),
+            data={"rfid_uid": "DEADBEEF"},
             content_type="application/json",
             **self.device_headers(),
         )
@@ -127,8 +125,8 @@ class IotRfidContractTests(TestCase):
     def test_unknown_rfid_can_be_accepted_by_an_administrator_then_start_a_session(self):
         unknown_uid = "DEADBEEF"
         response = self.client.post(
-            reverse("iot-session-start"),
-            data={"device_id": self.device.device_code, "rfid_uid": unknown_uid},
+            reverse("iot-session-start", args=[self.device.device_code]),
+            data={"rfid_uid": unknown_uid},
             content_type="application/json",
             **self.device_headers(),
         )
@@ -155,18 +153,18 @@ class IotRfidContractTests(TestCase):
 
         self.client.logout()
         started = self.client.post(
-            reverse("iot-session-start"),
-            data={"device_id": self.device.device_code, "rfid_uid": unknown_uid},
+            reverse("iot-session-start", args=[self.device.device_code]),
+            data={"rfid_uid": unknown_uid},
             content_type="application/json",
             **self.device_headers(),
         )
         self.assertEqual(started.status_code, 200)
         self.assertEqual(started.json()["status"], "ACTIVE")
 
-    def test_iot_authentication_error_has_actionable_json_status(self):
+    def test_unknown_device_identifier_is_rejected(self):
         response = self.client.post(
-            reverse("iot-session-start"),
-            data={"device_id": self.device.device_code, "rfid_uid": self.card_uid},
+            reverse("iot-session-start", args=["UNKNOWN-PI"]),
+            data={"rfid_uid": self.card_uid},
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 401)
@@ -272,7 +270,7 @@ class IotRfidContractTests(TestCase):
         )
 
         status_response = self.client.get(
-            reverse("iot-basket-status", args=[basket_id]),
+            reverse("iot-basket-status", args=[self.device.device_code]),
             **self.device_headers(),
         )
 

@@ -12,7 +12,6 @@ from apps.catalog.models import VisionLabel
 from apps.checkout.models import MatrixScanEvent
 from apps.checkout.services import select_basket_from_scan
 from apps.devices.models import BasketDevice, CheckoutTerminal
-from apps.devices.services import process_heartbeat
 
 
 class Command(BaseCommand):
@@ -55,15 +54,10 @@ class Command(BaseCommand):
         if not products:
             raise CommandError("Aucun produit actif n'est disponible pour le panier de démonstration.")
 
-        device, device_created = BasketDevice.objects.get_or_create(
+        device, _device_created = BasketDevice.objects.get_or_create(
             device_code="DEMO-PI-01",
             defaults={"matrix_id": 101, "enabled": True},
         )
-        device_secret = None
-        if device_created:
-            device_secret = secrets.token_urlsafe(28)
-            device.set_secret(device_secret)
-            device.save(update_fields=("credential_hash",))
 
         terminal, terminal_created = CheckoutTerminal.objects.get_or_create(
             terminal_code="DEMO-CAISSE-01",
@@ -75,12 +69,13 @@ class Command(BaseCommand):
             terminal.set_secret(terminal_secret)
             terminal.save(update_fields=("credential_hash",))
 
-        device, session, _command = process_heartbeat(
-            device,
-            {"firmware_version": "demo", "boot_id": "DEMO-BOOT"},
+        session = (
+            BasketSession.objects.filter(
+                device=device,
+                status__in=(BasketSession.Status.OPEN, BasketSession.Status.CHECKOUT_PENDING),
+            ).first()
+            or BasketSession.objects.create(device=device)
         )
-        if session is None:
-            raise CommandError("Le panier attend une réinitialisation et ne peut pas ouvrir de session.")
 
         if not session.lines.exists():
             for index, product in enumerate(products, start=1):
@@ -115,7 +110,5 @@ class Command(BaseCommand):
         self.stdout.write(f"Compte : {user.username}")
         self.stdout.write(f"Page : http://127.0.0.1:8000/")
         self.stdout.write(f"Panier : matrice {device.matrix_id}, session {session.id}")
-        if device_secret:
-            self.stdout.write(f"Secret Raspberry Pi (affiché une seule fois) : {device_secret}")
         if terminal_secret:
             self.stdout.write(f"Secret caisse (affiché une seule fois) : {terminal_secret}")

@@ -3,10 +3,10 @@
 <!-- architecture-section: executive-verdict -->
 ## Executive Verdict
 
-- **Recommendation :** conserver un monolithe Django ASGI, une base SQLite et Django Channels, mais restructurer le domaine autour des équipements, sessions de panier, événements de détection, passage en caisse et ventes. Les Raspberry Pi et le scanner communiquent avec Django par API HTTP JSON ; les navigateurs utilisent les pages Django et des WebSockets pour le direct.
+- **Recommendation :** conserver un monolithe Django ASGI, une base SQLite et Django Channels, structuré autour des Raspberry Pi, factures actives, détections, clients RFID, wallets et ventes. La Pi s'identifie par son `device_id` sur le LAN privé et ne manipule aucun identifiant interne de panier.
 - **Pourquoi cette solution convient :** elle prolonge la stack déjà opérationnelle, reste exploitable par une petite équipe, évite les microservices et donne un propriétaire unique aux prix, paniers, ventes et stocks.
 - **Risque principal :** une caméra qui envoie la même classe à chaque image crée des doublons. La Raspberry Pi doit transformer les observations vidéo en événements stables `ITEM_ADDED`/`ITEM_REMOVED`, persistés et idempotents, et la caisse doit toujours permettre une correction humaine.
-- **À décider maintenant :** la matrice encode l'identifiant stable du panier physique ; son scan sélectionne et verrouille le panier à la caisse, mais ne facture jamais automatiquement.
+- **Décision retenue :** la première carte RFID connue ouvre une facture ; une seconde lecture demande au backend de la payer. Le paiement manuel reste possible et toute facture terminée est historisée.
 - **Peut attendre :** PostgreSQL, Redis, MQTT, cloud, paiement électronique et fonctionnement multi-magasin.
 - **Confiance :** élevée pour la structure générale ; moyenne pour la logique de comptage visuel tant qu'elle n'a pas été testée avec de vrais ajouts/retraits d'objets en magasin.
 
@@ -15,12 +15,12 @@
 
 ### Objectifs
 
-- Associer une Raspberry Pi, une caméra et une matrice 8×8 à chaque panier physique.
+- Associer une Raspberry Pi et une caméra à chaque poste de détection.
 - Reconnaître les objets électroniques déposés ou retirés, puis afficher le contenu et les prix en temps réel.
-- Identifier à la caisse un panier physique numéroté de `1` à `4095` en scannant sa matrice.
-- Permettre au caissier de vérifier, corriger, confirmer et facturer le panier.
+- Identifier le client par RFID et ouvrir automatiquement une nouvelle facture sur la Pi.
+- Permettre le paiement RFID contrôlé par le backend ou une confirmation manuelle par le caissier.
 - Décrémenter le stock et conserver un historique de vente seulement après confirmation.
-- Réinitialiser proprement la Raspberry Pi et ouvrir un nouveau cycle de panier après la vente.
+- Réinitialiser proprement la Raspberry Pi et ouvrir un nouveau cycle à la prochaine carte après la vente.
 - Gérer les produits, prix, labels IA, stocks, paniers et équipements depuis Django.
 
 ### Hors périmètre initial
@@ -29,7 +29,7 @@
 - Fonctionnement sans serveur à la caisse.
 - Multi-magasin, cloud, haute disponibilité et synchronisation inter-sites.
 - Analyse vidéo ou entraînement du modèle IA dans Django.
-- Identification du client ou stockage de données personnelles.
+- Paiement bancaire ou mobile externe.
 
 ### Contraintes
 
@@ -37,6 +37,7 @@
 - SQLite est demandé et convient à une première version locale à faible concurrence.
 - Le format de matrice existant utilise 12 bits, soit 4096 motifs possibles.
 - Le serveur, les Raspberry Pi et le scanner sont supposés partager un réseau local de magasin.
+- Le réseau local est considéré comme la frontière de confiance pour les Raspberry Pi : leur `device_id` doit exister et être activé, sans secret ni appairage.
 - La caisse doit rester contrôlée par un utilisateur authentifié ; un scan matériel n'est pas une autorisation de vente.
 
 <!-- architecture-section: evidence-and-assumptions -->
@@ -46,7 +47,7 @@
 |---|---|---:|---|---|
 | Le backend actuel est un monolithe Django/DRF/Channels avec SQLite. | Fait vérifié | Haute | Faible | `core/settings.py`, `api/*`, `requirements.txt` |
 | Les endpoints Raspberry actuels ajoutent directement une quantité à partir d'un label. | Fait vérifié | Haute | Élevé : doublons et incohérences | `api/views.py` |
-| L'API actuelle n'authentifie pas les appareils, accepte tous les hôtes/origines et expose un WebSocket public. | Fait vérifié | Haute | Élevé avant mise en production | `core/settings.py`, `api/consumers.py` |
+| L'API Pi valide le `device_id`, sans secret, conformément au choix d'exploitation sur LAN privé. | Décision validée | Haute | Élevé si le réseau cesse d'être maîtrisé | `apps/devices/authentication.py` |
 | Le format 8×8 encode tous les identifiants `0..4095`, avec trois copies masquées et vote majoritaire. | Fait exécuté | Haute | Élevé si le décodage matériel diffère | 4 tests matrice réussis |
 | Le scanner ESP32 exige trois lectures stables et transmet déjà `event_id`, qualité et identifiant. | Fait vérifié | Haute | Faible | Firmware ESP32 |
 | Le scanner ESP32 envoie actuellement vers un petit récepteur SQLite hébergé sur une Raspberry Pi. | Fait vérifié | Haute | Élevé pour la topologie cible | Prototype `communication_raspberry_pi` |
@@ -59,37 +60,35 @@
 <!-- architecture-section: critical-flows -->
 ## Flux critiques
 
-1. **Provisionnement d'un panier :** un administrateur crée `BasketDevice`, lui attribue un `matrix_id` stable et génère un secret individuel ; la configuration est installée sur la Raspberry Pi, qui affiche ce numéro sur la matrice.
-2. **Détection d'un article :** la caméra produit des observations ; l'agent edge de la Pi stabilise et suit l'objet, crée un événement unique `ITEM_ADDED` ou `ITEM_REMOVED`, le conserve localement jusqu'à accusé de réception et le poste à Django.
-3. **Application d'un événement :** Django authentifie l'appareil, déduplique `event_id`, résout le label IA vers un produit, crée ou retrouve la session `OPEN`, modifie `BasketLine` dans une transaction, puis publie une notification WebSocket.
-4. **Scan à la caisse :** l'ESP32 décode le `matrix_id`, poste un `MatrixScanEvent` directement à Django ; Django retrouve l'unique session ouverte, la passe à `CHECKOUT_PENDING` et notifie le terminal de caisse.
-5. **Facturation :** le caissier relit et corrige le panier, choisit le mode/statut de paiement puis confirme. Django crée `Sale` et `SaleLine`, crée les mouvements de stock, clôture la session et programme un ordre de reset dans une seule transaction idempotente.
-6. **Réinitialisation :** au prochain heartbeat, la Raspberry Pi reçoit `RESET_SESSION`, efface son état de tracking local, accuse réception ; Django marque l'équipement prêt. Les événements tardifs de l'ancienne session sont conservés en audit mais ne modifient pas le nouveau panier.
-7. **Panne réseau :** la Pi garde les événements non acquittés dans son SQLite local et les renvoie en FIFO. Le scanner ne montre un succès qu'après un HTTP 2xx ; sinon la caisse demande un nouveau scan. Django déduplique toutes les répétitions.
+1. **Provisionnement :** un administrateur crée `BasketDevice` avec un `device_id` et, si nécessaire, un `matrix_id`. Aucun secret Pi ou appairage n'est généré.
+2. **Identification :** la première lecture d'une carte RFID connue crée une `BasketSession` `OPEN` pour le client. Une seule facture peut être active par Pi ; le heartbeat et les détections ne la créent jamais.
+3. **Détection :** la Pi stabilise les observations, crée un événement idempotent et l'envoie sans `basket_id`. Django retrouve la facture active par `device_id`, résout le produit et met à jour ses lignes.
+4. **Paiement RFID :** une seconde lecture de la même carte demande le paiement. Django verrouille la facture, le wallet et le stock, recalcule le total, débite le wallet, crée `Sale` et `SaleLine`, décrémente le stock et clôture la facture dans une transaction unique.
+5. **Paiement manuel :** un caissier peut relire et corriger la facture, puis confirmer qu'elle est payée. Le même service transactionnel crée la vente et les mouvements de stock.
+6. **Historique :** chaque cycle terminé reste accessible comme facture avec le client, les lignes figées, le paiement, l'appareil et l'opérateur.
+7. **Réinitialisation :** la Pi reçoit `RESET_SESSION`, efface son tracking, acquitte la commande, puis attend la prochaine carte RFID pour ouvrir un nouveau cycle.
+8. **Panne réseau :** la Pi conserve les opérations non acquittées et réutilise leurs clés d'idempotence. Une réponse perdue ne peut ni doubler une ligne, ni débiter deux fois, ni décrémenter deux fois le stock.
 
-### Séquence recommandée à la caisse
+### Séquence de facturation RFID
 
 ```mermaid
 sequenceDiagram
-    participant Matrix as "Matrice du panier"
-    participant Scanner as "Scanner ESP32 de caisse"
+    participant RFID as "Lecteur RFID"
+    participant Pi as "Raspberry Pi"
     participant Django as "Django ASGI"
     participant UI as "Interface caissier"
     participant DB as "SQLite"
-    participant Pi as "Raspberry du panier"
 
-    Scanner->>Matrix: Lit le matrix_id plusieurs fois
-    Scanner->>Django: POST /api/v1/checkout/scans
-    Django->>DB: Déduplique + OPEN → CHECKOUT_PENDING
-    Django-->>Scanner: 200 session_id + statut
-    Django-->>UI: WebSocket checkout.basket_selected
-    UI->>Django: GET panier autoritatif
-    Django-->>UI: Lignes, prix, total, version
-    UI->>Django: POST complete + expected_version
-    Django->>DB: Vente + lignes + stock + reset (transaction)
-    Django-->>UI: Vente confirmée / facture
-    Pi->>Django: Heartbeat
-    Django-->>Pi: Commande RESET_SESSION
+    RFID->>Pi: Première carte connue
+    Pi->>Django: POST invoice/start (device_id + UID)
+    Django->>DB: Crée la facture OPEN du client
+    Pi->>Django: POST invoice/detections (label + clé idempotente)
+    Django->>DB: Met à jour les lignes de la facture active
+    RFID->>Pi: Même carte présentée pour payer
+    Pi->>Django: POST invoice/rfid-payment
+    Django->>DB: Wallet + vente + stock + clôture (transaction)
+    Django-->>Pi: PAID + numéro de facture + commande reset
+    Django-->>UI: Facture disponible dans l'historique
     Pi->>Django: ACK reset
 ```
 
@@ -162,11 +161,11 @@ Chaque app peut utiliser `services.py` pour les transactions métier et `selecto
 
 | Composant | Responsabilité principale | Données/ressources possédées | Entrées/sorties | Dépendances autorisées | Comportement en panne |
 |---|---|---|---|---|---|
-| Agent edge Raspberry | Stabiliser/tracker les objets, produire des événements, piloter la matrice, bufferiser hors ligne | SQLite edge, configuration et secret du panier | Caméra → événements REST ; heartbeat/commandes | Caméra, SPI, Django API | Continue à observer et met en file ; n'invente jamais un ACK |
+| Agent edge Raspberry | Stabiliser/tracker les objets, lire la RFID, produire des événements et bufferiser hors ligne | SQLite edge et `device_id` | RFID/caméra → API facture ; statut/commandes | Caméra, lecteur RFID, Django API | Continue à observer et met en file ; n'invente jamais un ACK |
 | Matrice MAX7219 | Afficher le `matrix_id` stable du panier physique | Aucun état métier | 12 bits visuels | Pi ou microcontrôleur local | L'échec n'altère pas le panier serveur ; caisse peut saisir le numéro manuellement |
 | Scanner ESP32 | Lire/stabiliser le motif et transmettre un scan de caisse | Petite file de scans, identité du terminal | Matrice → `MatrixScanEvent` REST | LAN, Django API | Affiche échec et réessaie ; ne confirme pas une vente |
 | `catalog` | Catalogue, prix, stock courant et labels IA | `Product`, `VisionLabel` | Admin et résolution de label | ORM Django | Label inconnu → objet non répertorié/revue humaine |
-| `devices` | Identités matérielles, présence et commandes | `BasketDevice`, `CheckoutTerminal`, `DeviceCommand` | Auth appareil, heartbeat, ACK | ORM, configuration | Appareil expiré/désactivé refusé |
+| `devices` | Identités matérielles, présence et commandes | `BasketDevice`, `CheckoutTerminal`, `DeviceCommand` | Validation `device_id` Pi, auth terminal, heartbeat, ACK | ORM, configuration | Appareil inconnu/désactivé refusé |
 | `baskets` | Cycle d'un panier et application idempotente des événements | `BasketSession`, `BasketLine`, `DetectionEvent` | API Pi, lectures UI, notifications | `catalog`, `devices`, Channels | Événement douteux conservé sans modifier les lignes |
 | `checkout` | Scan, verrouillage, correction, vente et stock | `MatrixScanEvent`, `Sale`, `SaleLine`, `StockMovement` | API scanner et actions caissier | `baskets`, `catalog`, `devices` | Transaction annulée intégralement en cas d'erreur |
 | `dashboard` | Interface caissier et supervision | Aucune source de vérité | Templates/HTTP/WebSocket | Selectors des apps métier | Recharge l'état HTTP après perte WebSocket |
@@ -186,7 +185,7 @@ Django/SQLite est l'unique source de vérité des paniers, prix appliqués, vent
 |---|---|---|
 | `Product` | `sku`, `name`, `current_price`, `stock_quantity`, `is_active` | Argent en `Decimal`, SKU unique, stock non négatif sauf override audité ; aucun code-barres |
 | `VisionLabel` | `label`, `product_id`, `model_version`, `is_active` | Résolution explicite ; ne plus deviner via le nom du produit |
-| `BasketDevice` | `device_code`, `matrix_id`, `credential_hash`, `enabled`, `last_seen_at`, `reset_state` | `matrix_id` unique entre `1` et `4095`; `0` réservé aux tests/non assigné |
+| `BasketDevice` | `device_code`, `matrix_id`, `enabled`, `last_seen_at`, `reset_state` | `device_code` unique ; `matrix_id` unique entre `1` et `4095`; aucun secret Pi |
 | `BasketSession` | UUID, `device_id`, `status`, `version`, dates | Une seule session `OPEN` ou `CHECKOUT_PENDING` par équipement |
 | `BasketLine` | `session_id`, `product_id`, `quantity`, `unit_price_snapshot` | Unique `(session, product)` ; quantité strictement positive |
 | `DetectionEvent` | `device_id`, `session_id`, `event_id`, `boot_id`, `sequence`, action, label, confiance, dates, résultat | Unique `(device, event_id)` ; payload borné ; événement toujours auditable |
@@ -211,7 +210,7 @@ CHECKOUT_PENDING ──correction nécessaire──> OPEN
 
 - Seul `OPEN` accepte des événements d'ajout/retrait.
 - `CHECKOUT_PENDING` fige les lignes ; les événements tardifs sont journalisés et retournent `409 basket_locked`.
-- `COMPLETED` est terminal. Le prochain cycle crée une nouvelle session après ACK du reset.
+- `COMPLETED` est terminal. Après ACK du reset, la prochaine carte RFID crée une nouvelle session.
 - `CANCELLED` ne produit ni vente ni mouvement de stock.
 
 ### Transactions et cohérence
@@ -226,28 +225,24 @@ CHECKOUT_PENDING ──correction nécessaire──> OPEN
 
 | Méthode et chemin | Usage | Idempotence/réponse |
 |---|---|---|
-| `POST /api/v1/devices/{device_code}/heartbeat` | Présence, version logicielle, état edge et récupération de commande | Répétable ; retourne session active et commande désirée |
-| `POST /api/v1/devices/{device_code}/events` | Ajout/retrait confirmé par la vision | `Idempotency-Key = event_id`; `201` nouveau, `200` doublon |
+| `POST /api/iot/devices/{device_id}/invoice/start/` | Première lecture RFID, identification client et ouverture de facture | Reprend la facture du même client ; n'expose aucun identifiant interne |
+| `POST /api/iot/devices/{device_id}/invoice/detections/` | Ajout confirmé par la vision sur la facture active | `Idempotency-Key = event_id`; aucun `basket_id` dans la requête |
+| `GET /api/iot/devices/{device_id}/invoice/status/` | État `IDLE`, `ACTIVE`, `CHECKOUT_PENDING` ou `PAID` | Répétable ; permet de récupérer une confirmation perdue |
+| `POST /api/iot/devices/{device_id}/invoice/rfid-payment/` | Vérification et paiement backend par la même carte | Idempotent ; wallet, vente et stock dans une transaction |
+| `POST /api/v1/devices/{device_id}/heartbeat` | Présence, version logicielle et récupération de commande | Répétable ; ne crée jamais de facture |
 | `POST /api/v1/devices/{device_code}/commands/{command_id}/ack` | Confirmer le reset effectué | Répétable |
-| `GET /api/v1/devices/{device_code}/state` | Diagnostic/provisionnement | État minimal, jamais le secret |
+| `GET /api/v1/devices/{device_code}/state` | Diagnostic/provisionnement | État minimal |
 
 Exemple d'événement :
 
 ```json
 {
-  "event_id": "0d614e55-53b5-4ccb-b54f-df9c5e83f107",
-  "boot_id": "PI1-20260814-001",
-  "sequence": 42,
-  "captured_at": "2026-08-14T01:25:10Z",
-  "action": "ITEM_ADDED",
-  "detected_label": "arduino_mega_2560",
-  "confidence": 0.96,
-  "quantity": 1,
-  "model_version": "kitunga-yolo-1"
+  "label": "arduino_mega_2560",
+  "confidence": 0.96
 }
 ```
 
-Réponses stables : `201 applied`, `201 uncatalogued_object`, `401 unauthorized_device`, `409 basket_locked`, `409 version_conflict`, `422 invalid_event`, `429 rate_limited`.
+Réponses stables : `201 applied`, `401 DEVICE_UNAUTHORIZED`, `409 NO_ACTIVE_INVOICE`, `409 basket_locked`, `422 invalid_event`.
 
 ### API scanner et caisse
 
@@ -280,13 +275,13 @@ Le scanner transmet ses métriques existantes (`frame_errors`, `copy_disagreemen
 ## Confiance et sécurité
 
 - **Utilisateurs :** authentification Django par session. Groupes `Administrateur`, `Caissier`, `Superviseur`; la correction, l'annulation et le forçage de stock ont des permissions distinctes.
-- **Appareils :** secret aléatoire individuel par `BasketDevice` et `CheckoutTerminal`, affiché une seule fois et stocké haché côté serveur. Remplacer la clé globale `kitunga-local-2026`.
+- **Appareils :** la Pi est reconnue par un `device_id` enregistré et activé sur le LAN sécurisé. Seul le `CheckoutTerminal` optionnel conserve un secret individuel haché côté serveur.
 - **Réseau initial :** LAN privé unique avec SSID du magasin. Ne pas créer un hotspot identique sur chaque panier. Le serveur reçoit une réservation DHCP ou le nom `kitunga.local`.
 - **Transport :** HTTP peut être toléré uniquement pendant le pilote sur un LAN isolé et non exposé. Avant un réseau partagé/public, placer Django derrière TLS et faire confiance au certificat sur Pi/ESP32.
 - **WebSockets :** vérifier l'utilisateur, le rôle et le terminal avant `accept()` ; ne plus accepter toute connexion par simple connaissance du `device_id`.
 - **Entrées non fiables :** bornes de taille, schéma strict, labels autorisés, `matrix_id 1..4095`, confiance `0..1`, quantité bornée et limitation de débit par appareil.
-- **Rejeu :** clé d'idempotence unique, timestamps serveur, événement associé à l'identité authentifiée. Le numéro matriciel étant public, il ne confère aucun droit.
-- **Secrets/configuration :** `SECRET_KEY`, `DEBUG`, hôtes, origines et secrets appareils viennent de variables d'environnement ; aucun secret dans Git ou les logs.
+- **Rejeu :** clé d'idempotence unique, timestamps serveur et événement associé au `device_id`. Le numéro matriciel étant public, il ne confère aucun droit.
+- **Secrets/configuration :** `SECRET_KEY`, `DEBUG`, hôtes, origines et secrets des terminaux viennent de variables d'environnement ; aucun secret dans Git ou les logs.
 - **Données :** catalogue, paniers, ventes et métriques techniques sont internes. Les journaux n'incluent ni clé, ni image caméra, ni payload complet par défaut.
 - **Audit :** conserver détections, scans, corrections, transitions, ventes et mouvements de stock avec auteur/appareil et horodatage UTC.
 
@@ -408,7 +403,7 @@ Le scanner prouve seulement qu'un motif ressemblant au numéro `X` a été lu. I
 1. **Socle et sécurité :** settings par environnement, secrets, rôles, health checks, logs structurés et fermeture CORS/hosts ; aucun changement destructif.
 2. **Domaine catalogue/équipements :** `Product`, `VisionLabel`, `BasketDevice`, `CheckoutTerminal`, provisionnement et contraintes `matrix_id`.
 3. **Domaine panier :** sessions versionnées, lignes avec prix snapshot, événements idempotents et contrainte d'une session active.
-4. **API Pi :** authentification appareil, heartbeat, ingestion, file edge SQLite, ACK et tests de replay/coupure.
+4. **API Pi :** validation du `device_id`, cycle RFID de facture, heartbeat, ingestion sans `basket_id`, file edge SQLite, ACK et tests de replay/coupure.
 5. **Passage en caisse :** scan direct, verrouillage, UI caissier, corrections, finalisation atomique, ventes et mouvements de stock.
 6. **Reset :** `DeviceCommand`, remise à zéro edge, ACK, timeout et force-reset superviseur.
 7. **Temps réel/UI :** Templates Django, WebSockets authentifiés, rechargement HTTP et suppression des IP codées en dur.

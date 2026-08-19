@@ -1,0 +1,90 @@
+{% extends "ui/base.html" %}
+
+{% block content %}
+<header class="page-heading">
+    <div>
+        <p class="eyebrow">Journal permanent</p>
+        <h1>Factures</h1>
+        <p>Chaque achat payé reste consultable avec ses articles, son client et son règlement.</p>
+    </div>
+    <form class="search-form" method="get" role="search">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 4 4"/></svg>
+        <label class="sr-only" for="invoice-search">Rechercher une facture</label>
+        <input id="invoice-search" name="q" value="{{ query }}" placeholder="Numéro, client ou code client">
+        {% if query %}<a href="{% url 'ui:invoices' %}">Effacer</a>{% endif %}
+    </form>
+</header>
+
+<div class="master-detail invoice-workspace">
+    <aside class="master-pane" aria-label="Historique des factures">
+        <div class="pane-heading"><div><span class="eyebrow">Historique</span><h2>{{ sales|length }} facture{{ sales|length|pluralize }}</h2></div></div>
+        <div class="master-list">
+            {% for sale in sales %}
+            <a class="master-row {% if selected and sale.id == selected.id %}is-selected{% endif %}" href="{% url 'ui:invoice-detail' sale.id %}{% if query %}?q={{ query|urlencode }}{% endif %}">
+                <span class="basket-number">{{ sale.sale_number|slice:"-4:" }}</span>
+                <span class="master-copy">
+                    <strong>{{ sale.sale_number }}</strong>
+                    <small>{{ sale.session.customer.display_name|default:"Client non renseigné" }} · {{ sale.created_at|date:"d/m/Y H:i" }}</small>
+                </span>
+                <svg class="row-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>
+            </a>
+            {% empty %}
+            <div class="empty-master">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3.5h12v17l-3-2-3 2-3-2-3 2zM9 8h6m-6 4h6"/></svg>
+                <strong>Aucune facture trouvée</strong>
+                <p>Les achats clôturés apparaîtront ici.</p>
+            </div>
+            {% endfor %}
+        </div>
+    </aside>
+
+    <section class="detail-pane">
+        {% if selected %}
+        <div class="checkout-detail">
+            <header class="detail-heading">
+                <div class="detail-title-row">
+                    <span class="large-basket-number">{{ selected.session.device.matrix_id }}</span>
+                    <div><p class="eyebrow">Facture payée</p><h2>{{ selected.sale_number }}</h2><p>{{ selected.created_at|date:"l d F Y à H:i" }}</p></div>
+                </div>
+                <span class="status-badge status-success">{{ selected.get_payment_status_display }}</span>
+            </header>
+
+            <div class="checkout-layout">
+                <div class="checkout-lines">
+                    <div class="ledger-heading"><div><span class="eyebrow">Articles facturés</span><h3>{{ selected.lines.all|length }} ligne{{ selected.lines.all|length|pluralize }}</h3></div></div>
+                    <div class="ledger-table-wrap">
+                        <table class="ledger-table">
+                            <thead><tr><th>Produit</th><th class="align-right">Prix</th><th class="align-center">Qté</th><th class="align-right">Total</th></tr></thead>
+                            <tbody>
+                                {% for line in selected.lines.all %}
+                                <tr>
+                                    <td data-label="Produit"><span class="product-cell"><strong>{{ line.product_name }}</strong><small>{{ line.product_sku }}</small></span></td>
+                                    <td data-label="Prix" class="align-right">{{ line.unit_price|floatformat:0 }} FC</td>
+                                    <td data-label="Quantité" class="align-center">{{ line.quantity }}</td>
+                                    <td data-label="Total" class="align-right strong">{{ line.line_total|floatformat:0 }} FC</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <aside class="checkout-summary">
+                    <p class="eyebrow">Règlement</p>
+                    <h3>Détails de la facture</h3>
+                    <dl class="definition-list">
+                        <div><dt>Client</dt><dd>{{ selected.session.customer.display_name|default:"Non renseigné" }}</dd></div>
+                        <div><dt>Code client</dt><dd>{{ selected.session.customer.customer_code|default:"—" }}</dd></div>
+                        <div><dt>Moyen</dt><dd>{{ selected.payment_method }}</dd></div>
+                        <div><dt>Opérateur</dt><dd>{{ selected.cashier.get_full_name|default:selected.cashier.username|default:"Paiement RFID" }}</dd></div>
+                        <div><dt>Raspberry</dt><dd>{{ selected.session.device.device_code }}</dd></div>
+                    </dl>
+                    <dl class="summary-list"><div class="summary-total"><dt>Total payé</dt><dd>{{ selected.total|floatformat:0 }} FC</dd></div></dl>
+                </aside>
+            </div>
+        </div>
+        {% else %}
+        <div class="empty-detail static-empty"><p class="eyebrow">Historique</p><h2>Aucune facture à afficher</h2><p>Terminez un achat ou modifiez votre recherche.</p></div>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}

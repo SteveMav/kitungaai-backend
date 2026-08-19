@@ -60,7 +60,7 @@
                 <thead><tr><th>Vente</th><th>Caissier</th><th>Statut</th><th>Heure</th><th class="align-right">Total</th></tr></thead>
                 <tbody>
                     {% for sale in recent_sales %}
-                    <tr><td data-label="Vente"><strong>{{ sale.sale_number }}</strong></td><td data-label="Caissier">{{ sale.cashier.get_full_name|default:sale.cashier.username }}</td><td data-label="Statut"><span class="status-badge status-success">{{ sale.get_payment_status_display }}</span></td><td data-label="Heure">{{ sale.created_at|date:"H:i" }}</td><td data-label="Total" class="align-right price">{{ sale.total|floatformat:0 }} FC</td></tr>
+                    <tr><td data-label="Vente"><a href="{% url 'ui:invoice-detail' sale.id %}"><strong>{{ sale.sale_number }}</strong></a></td><td data-label="Caissier">{{ sale.cashier.get_full_name|default:sale.cashier.username }}</td><td data-label="Statut"><span class="status-badge status-success">{{ sale.get_payment_status_display }}</span></td><td data-label="Heure">{{ sale.created_at|date:"H:i" }}</td><td data-label="Total" class="align-right price">{{ sale.total|floatformat:0 }} FC</td></tr>
                     {% endfor %}
                 </tbody>
             </table>

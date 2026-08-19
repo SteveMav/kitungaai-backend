@@ -1,4 +1,4 @@
-from django.db import IntegrityError, transaction
+from django.db import transaction
 from django.utils import timezone
 
 from apps.baskets.models import BasketSession
@@ -30,13 +30,6 @@ def process_heartbeat(device, payload):
         setattr(device, key, value)
 
     session = active_session_for_device(device)
-    if session is None and device.reset_state == BasketDevice.ResetState.READY:
-        try:
-            with transaction.atomic():
-                session = BasketSession.objects.create(device=device)
-        except IntegrityError:
-            session = active_session_for_device(device)
-
     command = (
         DeviceCommand.objects.filter(device=device, status=DeviceCommand.Status.PENDING)
         .order_by("created_at")

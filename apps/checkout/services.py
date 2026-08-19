@@ -385,6 +385,9 @@ def complete_sale(session_id, user, idempotency_key, payload, *, payment_device=
             raise DomainError("idempotency_key_conflict", 409)
         return existing, True
 
+    if payload["payment_status"] != Sale.PaymentStatus.PAID:
+        raise DomainError("payment_not_confirmed", 422)
+
     session = session_with_lines(session_id)
     if session is None:
         raise DomainError("session_not_found", 404)

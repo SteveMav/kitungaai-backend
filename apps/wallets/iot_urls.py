@@ -4,8 +4,24 @@ from .iot import BasketStatusView, RfidPaymentView, SendDetectionView, StartSess
 
 
 urlpatterns = [
-    path("sessions/start/", StartSessionView.as_view(), name="iot-session-start"),
-    path("baskets/<uuid:basket_id>/detections/", SendDetectionView.as_view(), name="iot-detection"),
-    path("baskets/<uuid:basket_id>/status/", BasketStatusView.as_view(), name="iot-basket-status"),
-    path("baskets/<uuid:basket_id>/rfid-payment/", RfidPaymentView.as_view(), name="iot-rfid-payment"),
+    path(
+        "devices/<str:device_code>/invoice/start/",
+        StartSessionView.as_view(),
+        name="iot-session-start",
+    ),
+    path(
+        "devices/<str:device_code>/invoice/detections/",
+        SendDetectionView.as_view(),
+        name="iot-detection",
+    ),
+    path(
+        "devices/<str:device_code>/invoice/status/",
+        BasketStatusView.as_view(),
+        name="iot-basket-status",
+    ),
+    path(
+        "devices/<str:device_code>/invoice/rfid-payment/",
+        RfidPaymentView.as_view(),
+        name="iot-rfid-payment",
+    ),
 ]

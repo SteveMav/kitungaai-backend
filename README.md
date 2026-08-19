@@ -70,11 +70,11 @@ Rafraîchissez ensuite la page **Caisse**.
 ## Ce que fait l'application
 
 1. **Stock** : Django conserve le nom, le SKU, le prix, la quantité et les labels reconnus par la caméra.
-2. **Panier** : la Raspberry Pi ouvre une session et envoie des événements `ITEM_ADDED` ou `ITEM_REMOVED`.
+2. **Facture active** : le premier scan RFID identifie le client et crée la facture ; la Raspberry envoie ensuite les détections sans gérer son identifiant interne.
 3. **Direct** : la page Paniers recharge le contenu après chaque événement WebSocket.
 4. **Confirmation manuelle** : depuis **Paniers**, le caissier verrouille un panier actif, le corrige si nécessaire, puis confirme la vente.
 5. **Paiement RFID** : le client peut aussi retirer puis présenter à nouveau la même carte pendant que son panier est actif ; Django vérifie l'identité et le solde, puis finalise la vente.
-6. **Nouveau cycle** : Django demande à la Raspberry Pi de réinitialiser le panier.
+6. **Historique et nouveau cycle** : la vente clôturée reste dans **Factures**, puis le scan RFID suivant démarre une nouvelle facture.
 
 ## Cartes RFID et wallets
 
@@ -91,7 +91,7 @@ python manage.py check
 # Lancer tous les tests
 python manage.py test
 
-# Créer un appareil et afficher son secret une seule fois
+# Créer ou mettre à jour une Raspberry par son device_id
 python manage.py provision_device KITUNGA-PI-01 101
 
 # Créer une caisse

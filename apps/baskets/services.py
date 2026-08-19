@@ -59,20 +59,6 @@ def ingest_detection(device, payload):
         )
         .first()
     )
-    if session is None and device.reset_state == BasketDevice.ResetState.READY:
-        try:
-            with transaction.atomic():
-                session = BasketSession.objects.create(device=device)
-        except IntegrityError:
-            session = (
-                BasketSession.objects.select_related("device", "selected_terminal")
-                .filter(
-                    device=device,
-                    status__in=(BasketSession.Status.OPEN, BasketSession.Status.CHECKOUT_PENDING),
-                )
-                .first()
-            )
-
     claimed_session_id = payload.get("session_id")
     event_session = session
     session_matches = True

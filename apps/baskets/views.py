@@ -36,11 +36,6 @@ class DetectionEventView(APIView):
             )
 
         event_id = str(serializer.validated_data["event_id"])
-        if not serializer.validated_data.get("session_id"):
-            return Response(
-                {"error": "invalid_event", "fields": {"session_id": ["Requis depuis la réponse heartbeat."]}},
-                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            )
         idempotency_key = request.headers.get("Idempotency-Key", "")
         if idempotency_key != event_id:
             return Response(
