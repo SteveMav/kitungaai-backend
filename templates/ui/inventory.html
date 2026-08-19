@@ -1,0 +1,55 @@
+{% extends "ui/base.html" %}
+
+{% block content %}
+<header class="page-heading">
+    <div>
+        <p class="eyebrow">Catalogue simple</p>
+        <h1>Stock</h1>
+        <p>Les produits connus par Django, leur prix et la quantité réellement disponible.</p>
+    </div>
+    {% if can_manage_stock %}<a class="button button-primary" href="{% url 'ui:product-create' %}">Ajouter un produit</a>{% endif %}
+</header>
+
+<div class="inventory-toolbar">
+    <form class="search-form" method="get" role="search">
+        <label class="sr-only" for="stock-search">Rechercher dans le stock</label>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m20 20-4.5-4.5M18 11a7 7 0 1 1-14 0 7 7 0 0 1 14 0z"/></svg>
+        <input id="stock-search" type="search" name="q" value="{{ query }}" placeholder="Rechercher par nom ou SKU">
+        {% if query %}<a href="{% url 'ui:inventory' %}">Effacer</a>{% endif %}
+    </form>
+    <span class="stock-note"><strong>{{ low_stock_count }}</strong> produit{{ low_stock_count|pluralize }} à surveiller</span>
+</div>
+
+<section class="inventory-section" aria-label="Produits en stock">
+    {% if products %}
+    <div class="simple-table-wrap">
+        <table class="simple-table inventory-table">
+            <thead><tr><th>Produit</th><th>Labels caméra</th><th class="align-right">Prix</th><th class="align-right">Stock</th><th>État</th>{% if can_manage_stock %}<th><span class="sr-only">Action</span></th>{% endif %}</tr></thead>
+            <tbody>
+                {% for product in products %}
+                <tr>
+                    <td data-label="Produit"><span class="product-cell"><strong>{{ product.name }}</strong><small>{{ product.sku }}</small></span></td>
+                    <td data-label="Labels caméra">
+                        <span class="label-list">
+                        {% for vision_label in product.vision_labels.all %}{% if vision_label.is_active and not vision_label.model_version %}<code>{{ vision_label.label }}</code>{% endif %}{% empty %}<span class="muted">Non associé</span>{% endfor %}
+                        </span>
+                    </td>
+                    <td data-label="Prix" class="align-right price">{{ product.price|floatformat:0 }} FC</td>
+                    <td data-label="Stock" class="align-right"><strong class="stock-value {% if product.stock <= 5 %}is-low{% endif %}">{{ product.stock }}</strong></td>
+                    <td data-label="État"><span class="status-badge {% if product.is_active %}status-success{% else %}status-neutral{% endif %}">{% if product.is_active %}Disponible{% else %}Masqué{% endif %}</span></td>
+                    {% if can_manage_stock %}<td data-label="Action" class="table-action"><a class="button-link" href="{% url 'ui:product-edit' product.id %}">Modifier</a></td>{% endif %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-detail compact-empty">
+        <span class="empty-illustration"><svg viewBox="0 0 48 48" aria-hidden="true"><path d="m8 15 16-6 16 6-16 6zM8 15v20l16 6 16-6V15M24 21v20"/></svg></span>
+        <h2>{% if query %}Aucun résultat{% else %}Le catalogue est vide{% endif %}</h2>
+        <p>{% if query %}Essayez un autre nom ou une autre référence.{% else %}Ajoutez le premier produit avec son prix, son stock et son label caméra.{% endif %}</p>
+        {% if can_manage_stock and not query %}<a class="button button-primary" href="{% url 'ui:product-create' %}">Ajouter un produit</a>{% endif %}
+    </div>
+    {% endif %}
+</section>
+{% endblock %}

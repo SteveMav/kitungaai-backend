@@ -1,0 +1,100 @@
+{% extends "ui/base.html" %}
+
+{% block content %}
+<header class="page-heading">
+    <div>
+        <p class="eyebrow">Validation administrateur</p>
+        <h1>Cartes RFID</h1>
+        <p>Une carte inconnue est enregistrée ici avant de pouvoir ouvrir un panier ou payer.</p>
+    </div>
+    <span class="queue-count"><strong>{{ pending|length }}</strong> à traiter</span>
+</header>
+
+<div class="master-detail rfid-workspace">
+    <aside class="master-pane" aria-label="Demandes RFID en attente">
+        <div class="pane-heading"><div><span class="eyebrow">File d'attente</span><h2>Cartes à vérifier</h2></div></div>
+        <div class="master-list">
+            {% for enrollment in pending %}
+            <a class="master-row rfid-request-row {% if selected and enrollment.id == selected.id %}is-selected{% endif %}" href="{% url 'ui:rfid-enrollment-detail' enrollment.id %}">
+                <span class="basket-number">{{ enrollment.device.matrix_id }}</span>
+                <span class="master-copy">
+                    <strong>Carte {{ enrollment.uid }}</strong>
+                    <small>Panier {{ enrollment.device.matrix_id }} · vue {{ enrollment.seen_count }} fois</small>
+                </span>
+                <svg class="row-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>
+            </a>
+            {% empty %}
+            <div class="empty-master">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5h14v13H5zM8 9h8M8 12h5m2.5 3.5 1.5 1.5 3-3"/></svg>
+                <strong>Aucune carte à traiter</strong>
+                <p>Une demande apparaîtra dès qu'une Pi lit une carte inconnue.</p>
+            </div>
+            {% endfor %}
+        </div>
+    </aside>
+
+    <section class="detail-pane">
+        {% if selected %}
+        <div class="rfid-enrollment-detail">
+            <header class="detail-heading">
+                <div class="detail-title-row">
+                    <span class="large-basket-number">{{ selected.device.matrix_id }}</span>
+                    <div>
+                        <p class="eyebrow">Carte inconnue</p>
+                        <h2>{{ selected.uid }}</h2>
+                        <p>Demandée par {{ selected.device.device_code }} à {{ selected.requested_at|date:"H:i" }} · dernière lecture {{ selected.last_seen_at|date:"H:i" }}</p>
+                    </div>
+                </div>
+                <span class="status-badge status-warning">En attente</span>
+            </header>
+
+            <div class="rfid-enrollment-layout">
+                <section class="rfid-approval-panel" aria-labelledby="assign-card-title">
+                    <div class="ledger-heading"><div><span class="eyebrow">Association</span><h3 id="assign-card-title">À quel client appartient cette carte ?</h3></div></div>
+                    <form class="stack-form rfid-approval-form" method="post" action="{% url 'ui:rfid-enrollment-approve' selected.id %}">
+                        {% csrf_token %}
+                        {% if approval_form.non_field_errors %}<div class="form-error">{{ approval_form.non_field_errors }}</div>{% endif %}
+                        <div class="field-group">
+                            <label for="{{ approval_form.customer.id_for_label }}">{{ approval_form.customer.label }}</label>
+                            {{ approval_form.customer }}
+                            <p class="field-help">Sélectionnez-le s'il existe déjà. Son portefeuille est conservé.</p>
+                        </div>
+                        <div class="form-divider"><span>ou créer un client</span></div>
+                        <div class="form-grid two-columns">
+                            <div class="field-group"><label for="{{ approval_form.customer_code.id_for_label }}">{{ approval_form.customer_code.label }}</label>{{ approval_form.customer_code }}<p class="field-help">Optionnel, un code sera créé si vide.</p></div>
+                            <div class="field-group"><label for="{{ approval_form.display_name.id_for_label }}">{{ approval_form.display_name.label }}</label>{{ approval_form.display_name }}</div>
+                        </div>
+                        <button class="button button-primary" type="submit">Accepter et associer la carte</button>
+                    </form>
+                </section>
+
+                <aside class="rfid-review-aside">
+                    <p class="eyebrow">Contrôle</p>
+                    <h3>Avant d'accepter</h3>
+                    <dl class="definition-list">
+                        <div><dt>UID de la carte</dt><dd class="rfid-uid">{{ selected.uid }}</dd></div>
+                        <div><dt>Panier source</dt><dd>{{ selected.device.device_code }} · matrice {{ selected.device.matrix_id }}</dd></div>
+                        <div><dt>Lectures reçues</dt><dd>{{ selected.seen_count }}</dd></div>
+                    </dl>
+                    <details class="secondary-action">
+                        <summary>Refuser cette carte</summary>
+                        <form class="stack-form" method="post" action="{% url 'ui:rfid-enrollment-reject' selected.id %}" data-confirm="Refuser cette demande RFID ?">
+                            {% csrf_token %}
+                            <div class="field-group"><label for="{{ rejection_form.reason.id_for_label }}">{{ rejection_form.reason.label }}</label>{{ rejection_form.reason }}</div>
+                            <button class="button button-danger button-full" type="submit">Refuser la demande</button>
+                        </form>
+                    </details>
+                </aside>
+            </div>
+        </div>
+        {% else %}
+        <div class="empty-detail">
+            <span class="empty-illustration"><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M10 9h28v30H10zM16 17h16m-16 7h8m4 0h4m-16 7h8m4 0h4"/></svg></span>
+            <p class="eyebrow">Prêt à enregistrer</p>
+            <h2>Aucune carte inconnue</h2>
+            <p>Lorsqu'une carte non associée est lue par une Raspberry Pi, elle apparaît ici sans pouvoir démarrer un achat.</p>
+        </div>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}

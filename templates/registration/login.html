@@ -1,0 +1,46 @@
+{% extends "ui/base.html" %}
+
+{% block title %}Connexion · Kitunga{% endblock %}
+
+{% block auth_content %}
+<div class="login-shell">
+    <section class="login-intro" aria-labelledby="login-brand">
+        <a class="brand login-brand" href="/">
+            <span class="brand-mark" aria-hidden="true">K</span>
+            <span><strong id="login-brand">Kitunga</strong><small>Gestion magasin</small></span>
+        </a>
+        <div class="login-statement">
+            <p class="eyebrow">Panier connecté · Caisse contrôlée</p>
+            <h1>Le contenu du panier, sans détour.</h1>
+            <p>Suivez les articles détectés, vérifiez le panier à la caisse et mettez le stock à jour au même endroit.</p>
+        </div>
+        <p class="login-note">La détection prépare le panier. Le caissier garde toujours le dernier mot.</p>
+    </section>
+    <section class="login-panel">
+        <div class="login-form-wrap">
+            <p class="eyebrow">Accès équipe</p>
+            <h2>Se connecter</h2>
+            <p class="form-intro">Utilisez votre compte caissier ou administrateur.</p>
+            {% if form.errors %}
+            <div class="form-error" role="alert">Identifiant ou mot de passe incorrect.</div>
+            {% endif %}
+            {% if next and user.is_authenticated %}
+            <div class="form-error" role="alert">Votre compte n'a pas accès à cette page.</div>
+            {% endif %}
+            <form method="post" class="stack-form">
+                {% csrf_token %}
+                <div class="field-group">
+                    <label for="id_username">Identifiant</label>
+                    <input type="text" name="username" autocomplete="username" autofocus required id="id_username" value="{{ form.username.value|default:'' }}">
+                </div>
+                <div class="field-group">
+                    <label for="id_password">Mot de passe</label>
+                    <input type="password" name="password" autocomplete="current-password" required id="id_password">
+                </div>
+                <input type="hidden" name="next" value="{{ next }}">
+                <button class="button button-primary button-full" type="submit">Ouvrir Kitunga</button>
+            </form>
+        </div>
+    </section>
+</div>
+{% endblock %}

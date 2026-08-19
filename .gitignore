@@ -7,6 +7,15 @@ __pycache__/
 
 # Base de données locale
 db.sqlite3
+db.sqlite3-shm
+db.sqlite3-wal
+
+# Configuration et sorties locales
+.env
+staticfiles/
+output/
+.playwright-cli/
+*.log
 
 # Fichiers système ou d'IDE
 .DS_Store

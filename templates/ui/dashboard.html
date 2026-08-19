@@ -1,0 +1,86 @@
+{% extends "ui/base.html" %}
+
+{% block content %}
+<header class="page-heading">
+    <div>
+        <p class="eyebrow">Magasin aujourd'hui</p>
+        <h1>Vue d'ensemble</h1>
+        <p>Les situations qui demandent votre attention, sans bruit autour.</p>
+    </div>
+    <a class="button button-primary" href="{% url 'ui:baskets' %}">
+        Voir les paniers
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5"/></svg>
+    </a>
+</header>
+
+<section class="metric-strip" aria-label="État du magasin">
+    <div class="metric"><span>Paniers ouverts</span><strong>{{ open_count }}</strong><small>en cours de remplissage</small></div>
+    <div class="metric"><span>À la caisse</span><strong>{{ pending_sessions|length }}</strong><small>à vérifier</small></div>
+    <div class="metric"><span>Produits faibles</span><strong>{{ low_stock|length }}</strong><small>à 5 unités ou moins</small></div>
+    <div class="metric"><span>Ventes du jour</span><strong>{{ revenue_today|floatformat:0 }} <i>FC</i></strong><small>{{ recent_sales|length }} récente{{ recent_sales|length|pluralize }}</small></div>
+</section>
+
+<div class="dashboard-grid">
+    <div class="dashboard-main">
+    <section class="work-section" aria-labelledby="attention-title">
+        <div class="section-heading">
+            <div><p class="eyebrow">Priorité</p><h2 id="attention-title">À traiter maintenant</h2></div>
+            <span class="plain-count">À suivre</span>
+        </div>
+
+        <div class="attention-list">
+            {% for session in pending_sessions %}
+            <a class="attention-row" href="{% url 'ui:checkout-detail' session.id %}">
+                <span class="attention-icon state-warning"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8.5h14l-1.25 9H6.25zM8 8.5 10.5 4m5.5 4.5L13.5 4"/></svg></span>
+                <span class="attention-copy"><strong>Panier {{ session.device.matrix_id }} attend à la caisse</strong><small>{{ session.lines.all|length }} type{{ session.lines.all|length|pluralize }} d'article · sélectionné sur {{ session.selected_terminal|default:"la caisse" }}</small></span>
+                <svg class="row-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>
+            </a>
+            {% endfor %}
+            {% for product in low_stock %}
+            <a class="attention-row" href="{% if perms.api.change_product %}{% url 'ui:product-edit' product.id %}{% else %}{% url 'ui:inventory' %}?q={{ product.sku|urlencode }}{% endif %}">
+                <span class="attention-icon state-low"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 7 8-3 8 3-8 3zM4 7v10l8 3 8-3V7M12 10v10"/></svg></span>
+                <span class="attention-copy"><strong>{{ product.name }}</strong><small>{{ product.stock }} unité{{ product.stock|pluralize }} en stock · {{ product.sku }}</small></span>
+                <svg class="row-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>
+            </a>
+            {% endfor %}
+            {% if not pending_sessions and not low_stock %}
+            <div class="empty-inline">
+                <span class="empty-check"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></span>
+                <div><strong>Rien d'urgent</strong><p>Les paniers en caisse et les stocks faibles apparaîtront ici.</p></div>
+            </div>
+            {% endif %}
+        </div>
+    </section>
+
+    <section class="recent-section" aria-labelledby="sales-title">
+        <div class="section-heading compact"><div><p class="eyebrow">Journal</p><h2 id="sales-title">Dernières ventes</h2></div></div>
+        {% if recent_sales %}
+        <div class="simple-table-wrap">
+            <table class="simple-table">
+                <thead><tr><th>Vente</th><th>Caissier</th><th>Statut</th><th>Heure</th><th class="align-right">Total</th></tr></thead>
+                <tbody>
+                    {% for sale in recent_sales %}
+                    <tr><td data-label="Vente"><strong>{{ sale.sale_number }}</strong></td><td data-label="Caissier">{{ sale.cashier.get_full_name|default:sale.cashier.username }}</td><td data-label="Statut"><span class="status-badge status-success">{{ sale.get_payment_status_display }}</span></td><td data-label="Heure">{{ sale.created_at|date:"H:i" }}</td><td data-label="Total" class="align-right price">{{ sale.total|floatformat:0 }} FC</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-strip">La première vente confirmée aujourd'hui apparaîtra ici.</div>
+        {% endif %}
+    </section>
+    </div>
+
+    <aside class="flow-panel" aria-labelledby="flow-title">
+        <p class="eyebrow">Comment ça marche</p>
+        <h2 id="flow-title">Du panier au stock</h2>
+        <ol class="flow-list">
+            <li><span>1</span><div><strong>La caméra détecte</strong><p>La Raspberry Pi envoie un ajout ou un retrait stable.</p></div></li>
+            <li><span>2</span><div><strong>Le panier se met à jour</strong><p>Articles, quantités et prix s'affichent en direct.</p></div></li>
+            <li><span>3</span><div><strong>Le caissier vérifie</strong><p>Le scan de la matrice sélectionne le bon panier.</p></div></li>
+            <li><span>4</span><div><strong>La vente est confirmée</strong><p>Le stock baisse seulement après validation humaine.</p></div></li>
+        </ol>
+        <div class="flow-foot"><span class="connection-dot"></span>{{ device_count }} panier{{ device_count|pluralize }} configuré{{ device_count|pluralize }}</div>
+    </aside>
+</div>
+{% endblock %}

@@ -1,0 +1,10 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<h1>Recharger {{ wallet.customer.display_name }}</h1>
+<p>Solde actuel : <strong>{{ wallet.balance }} FC</strong></p>
+<form method="post">
+  {% csrf_token %}
+  {{ form.as_p }}
+  <div class="submit-row"><input type="submit" value="Confirmer le rechargement"></div>
+</form>
+{% endblock %}

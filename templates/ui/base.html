@@ -1,0 +1,115 @@
+{% load static %}
+<!doctype html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>{% block title %}{{ page_title|default:"Kitunga" }} · Kitunga{% endblock %}</title>
+    <link rel="icon" href="{% static 'kitunga/favicon.svg' %}" type="image/svg+xml">
+    <link rel="stylesheet" href="{% static 'kitunga/app.css' %}">
+    <script src="{% static 'kitunga/app.js' %}" defer></script>
+</head>
+<body class="{% if user.is_authenticated %}app-body{% else %}auth-body{% endif %}">
+    <a class="skip-link" href="#main-content">Aller au contenu</a>
+    {% if user.is_authenticated %}
+    <div class="app-shell">
+        <aside class="sidebar" id="app-sidebar" aria-label="Navigation principale">
+            <a class="brand" href="{% url 'ui:dashboard' %}" aria-label="Kitunga, vue d'ensemble">
+                <span class="brand-mark" aria-hidden="true">K</span>
+                <span><strong>Kitunga</strong><small>Gestion magasin</small></span>
+            </a>
+
+            <nav class="main-nav">
+                <a class="nav-link {% if section == 'dashboard' %}is-active{% endif %}" href="{% url 'ui:dashboard' %}">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h6v6H4zM14 5.5h6v3h-6zM14 12.5h6v6h-6zM4 15.5h6v3H4z"/></svg>
+                    <span>Vue d'ensemble</span>
+                </a>
+                <a class="nav-link {% if section == 'baskets' %}is-active{% endif %}" href="{% url 'ui:baskets' %}">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8.5h14l-1.25 9H6.25zM8 8.5 10.5 4m5.5 4.5L13.5 4M9 12v2.5m6-2.5v2.5"/></svg>
+                    <span>Paniers</span>
+                </a>
+                <a class="nav-link {% if section == 'checkout' %}is-active{% endif %}" href="{% url 'ui:checkout' %}">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5h14v13H5zM8 9h8m-8 3h3m4 0h1m-8 3h3m4 0h1"/></svg>
+                    <span>Caisse</span>
+                </a>
+                <a class="nav-link {% if section == 'inventory' %}is-active{% endif %}" href="{% url 'ui:inventory' %}">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 7 8-3 8 3-8 3zM4 7v10l8 3 8-3V7M12 10v10"/></svg>
+                    <span>Stock</span>
+                </a>
+                {% if can_manage_rfid_enrollments %}
+                <a class="nav-link {% if section == 'rfid_enrollments' %}is-active{% endif %}" href="{% url 'ui:rfid-enrollments' %}">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5h14v13H5zM8 9h8M8 12h5m2.5 3.5 1.5 1.5 3-3"/></svg>
+                    <span>Cartes RFID</span>
+                    {% if pending_rfid_enrollment_count %}<span class="nav-count">{{ pending_rfid_enrollment_count }}</span>{% endif %}
+                </a>
+                {% endif %}
+            </nav>
+
+            <div class="sidebar-footer">
+                {% if user.is_staff %}
+                <a class="nav-link nav-link-muted" href="{% url 'admin:index' %}">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7zM19 12l1.5-1-1.5-2.5-1.75.5a7 7 0 0 0-1.5-.9L15.5 6h-3l-.25 2.1a7 7 0 0 0-1.5.9L9 8.5 7.5 11l1.5 1a7 7 0 0 0 0 2l-1.5 1L9 17.5l1.75-.5a7 7 0 0 0 1.5.9l.25 2.1h3l.25-2.1a7 7 0 0 0 1.5-.9l1.75.5 1.5-2.5-1.5-1a7 7 0 0 0 0-2z"/></svg>
+                    <span>Administration</span>
+                </a>
+                {% endif %}
+                <div class="user-block">
+                    <span class="user-avatar" aria-hidden="true">{{ user.username|slice:":1"|upper }}</span>
+                    <span class="user-copy"><strong>{{ user.get_full_name|default:user.username }}</strong><small>Session active</small></span>
+                    <form method="post" action="{% url 'logout' %}">
+                        {% csrf_token %}
+                        <button class="icon-button" type="submit" title="Se déconnecter" aria-label="Se déconnecter">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 5H5v14h5m4-3 4-4-4-4m4 4H9"/></svg>
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </aside>
+
+        <div class="main-shell">
+            <header class="topbar">
+                <button class="icon-button mobile-menu-button" type="button" data-nav-toggle aria-controls="app-sidebar" aria-expanded="false" aria-label="Ouvrir la navigation">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+                </button>
+                <div class="topbar-context"><span class="connection-dot"></span> Serveur local opérationnel</div>
+                <time datetime="{% now 'c' %}">{% now "l j F" %}</time>
+            </header>
+
+            <main id="main-content" class="page">
+                {% if messages %}
+                <div class="messages" aria-live="polite">
+                    {% for message in messages %}
+                    <div class="message message-{{ message.tags|default:'info' }}">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM8.5 12l2.2 2.2 4.8-5"/></svg>
+                        <span>{{ message }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% block content %}{% endblock %}
+            </main>
+        </div>
+    </div>
+    <div class="nav-scrim" data-nav-scrim></div>
+    {% if can_manage_rfid_enrollments %}
+    <aside
+        class="rfid-notice"
+        data-rfid-enrollment-notice
+        data-pending-count="{{ pending_rfid_enrollment_count }}"
+        data-manage-url="{% url 'ui:rfid-enrollments' %}"
+        role="status"
+        aria-live="polite"
+        hidden
+    >
+        <div class="rfid-notice-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 5.5h14v13H5zM8 9h8M8 12h5m2.5 3.5 1.5 1.5 3-3"/></svg></div>
+        <div class="rfid-notice-copy"><strong data-rfid-notice-title>Carte RFID à traiter</strong><p data-rfid-notice-message>Une carte attend votre validation.</p></div>
+        <a class="button button-primary button-compact" data-rfid-notice-link href="{% url 'ui:rfid-enrollments' %}">Gérer</a>
+        <button class="icon-button" type="button" data-rfid-notice-dismiss aria-label="Masquer la notification"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17"/></svg></button>
+    </aside>
+    {% endif %}
+    {% else %}
+        <main id="main-content">{% block auth_content %}{% endblock %}</main>
+    {% endif %}
+    {% block scripts %}{% endblock %}
+</body>
+</html>

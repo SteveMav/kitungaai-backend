@@ -1,0 +1,44 @@
+{% extends "ui/base.html" %}
+
+{% block content %}
+<header class="page-heading page-heading-narrow">
+    <div>
+        <a class="back-link" href="{% url 'ui:inventory' %}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5m5-5-5 5 5 5"/></svg>Retour au stock</a>
+        <p class="eyebrow">{% if product %}Fiche produit{% else %}Catalogue{% endif %}</p>
+        <h1>{% if product %}Modifier {{ product.name }}{% else %}Nouveau produit{% endif %}</h1>
+        <p>Le label caméra est le nom envoyé par le modèle IA pour retrouver ce produit.</p>
+    </div>
+</header>
+
+<div class="form-layout">
+    <form method="post" class="product-form-panel">
+        {% csrf_token %}
+        {% if form.non_field_errors %}<div class="form-error" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+        <section class="form-section">
+            <div class="form-section-heading"><span>01</span><div><h2>Identification</h2><p>Une référence courte et un nom compréhensible.</p></div></div>
+            <div class="form-grid two-columns">
+                <div class="field-group {% if form.sku.errors %}has-error{% endif %}"><label for="{{ form.sku.id_for_label }}">{{ form.sku.label }}</label>{{ form.sku }}{% for error in form.sku.errors %}<small class="field-error">{{ error }}</small>{% endfor %}</div>
+                <div class="field-group {% if form.name.errors %}has-error{% endif %}"><label for="{{ form.name.id_for_label }}">{{ form.name.label }}</label>{{ form.name }}{% for error in form.name.errors %}<small class="field-error">{{ error }}</small>{% endfor %}</div>
+            </div>
+            <div class="field-group {% if form.vision_labels.errors %}has-error{% endif %}"><label for="{{ form.vision_labels.id_for_label }}">{{ form.vision_labels.label }}</label>{{ form.vision_labels }}<small class="field-help">{{ form.vision_labels.help_text }}</small>{% for error in form.vision_labels.errors %}<small class="field-error">{{ error }}</small>{% endfor %}</div>
+        </section>
+
+        <section class="form-section">
+            <div class="form-section-heading"><span>02</span><div><h2>Prix et stock</h2><p>Le prix est figé dans le panier au moment de la détection.</p></div></div>
+            <div class="form-grid two-columns">
+                <div class="field-group {% if form.price.errors %}has-error{% endif %}"><label for="{{ form.price.id_for_label }}">{{ form.price.label }}</label><div class="input-suffix">{{ form.price }}<span>FC</span></div>{% for error in form.price.errors %}<small class="field-error">{{ error }}</small>{% endfor %}</div>
+                <div class="field-group {% if form.stock.errors %}has-error{% endif %}"><label for="{{ form.stock.id_for_label }}">{{ form.stock.label }}</label>{{ form.stock }}{% for error in form.stock.errors %}<small class="field-error">{{ error }}</small>{% endfor %}</div>
+            </div>
+            <div class="field-group"><label for="{{ form.adjustment_reason.id_for_label }}">{{ form.adjustment_reason.label }}</label>{{ form.adjustment_reason }}<small class="field-help">Demandé quand la quantité change afin de garder un historique clair.</small></div>
+            <label class="checkbox-field">{{ form.is_active }}<span><strong>{{ form.is_active.label }}</strong><small>Un produit masqué n'est plus ajouté aux nouveaux paniers.</small></span></label>
+        </section>
+
+        <footer class="form-actions"><a class="button button-secondary" href="{% url 'ui:inventory' %}">Annuler</a><button class="button button-primary" type="submit">Enregistrer le produit</button></footer>
+    </form>
+    <aside class="form-aside">
+        <p class="eyebrow">À retenir</p>
+        <h2>Un produit, trois informations métier</h2>
+        <dl class="definition-list"><div><dt>SKU</dt><dd>Votre référence interne, visible par l'équipe.</dd></div><div><dt>Label caméra</dt><dd>Le texte exact envoyé par le modèle de détection.</dd></div><div><dt>Stock</dt><dd>Décrémenté uniquement quand le caissier confirme la vente.</dd></div></dl>
+    </aside>
+</div>
+{% endblock %}

@@ -1,0 +1,107 @@
+{% extends "ui/base.html" %}
+
+{% block content %}
+<header class="page-heading">
+    <div>
+        <p class="eyebrow">Suivi en direct</p>
+        <h1>Paniers</h1>
+        <p>Sélectionnez un panier physique pour voir ce que la caméra a ajouté ou retiré.</p>
+    </div>
+    <span class="helper-label"><span class="connection-dot"></span>Mise à jour automatique</span>
+</header>
+
+<div class="master-detail basket-workspace">
+    <aside class="master-pane" aria-label="Liste des paniers">
+        <div class="pane-heading">
+            <div><span class="eyebrow">Flotte</span><h2>{{ device_rows|length }} panier{{ device_rows|length|pluralize }}</h2></div>
+        </div>
+        <div class="master-list">
+            {% for row in device_rows %}
+                {% if row.session %}
+                <a class="master-row {% if selected and row.session.id == selected.id %}is-selected{% endif %}" href="{% url 'ui:basket-detail' row.session.id %}">
+                {% else %}
+                <div class="master-row is-disabled">
+                {% endif %}
+                    <span class="basket-number">{{ row.device.matrix_id }}</span>
+                    <span class="master-copy">
+                        <strong>Panier {{ row.device.matrix_id }}</strong>
+                        <small>
+                            {% if row.session %}{{ row.totals.items }} article{{ row.totals.items|pluralize }} · {{ row.totals.total|floatformat:0 }} FC{% else %}En attente d'une session{% endif %}
+                        </small>
+                    </span>
+                    <span class="presence {% if row.is_online %}is-online{% endif %}" title="{% if row.is_online %}Connecté{% else %}Hors ligne{% endif %}"></span>
+                {% if row.session %}</a>{% else %}</div>{% endif %}
+            {% empty %}
+            <div class="empty-master">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8.5h14l-1.25 9H6.25zM8 8.5 10.5 4m5.5 4.5L13.5 4"/></svg>
+                <strong>Aucun panier configuré</strong>
+                <p>Provisionnez d'abord une Raspberry Pi dans l'administration.</p>
+            </div>
+            {% endfor %}
+        </div>
+    </aside>
+
+    <section class="detail-pane" aria-live="polite">
+        {% if selected %}
+        <div class="basket-monitor" data-basket-monitor data-session-url="{% url 'ui:basket-data' selected.id %}" data-ws-url="/ws/v1/baskets/{{ selected.device.matrix_id }}/">
+            <header class="detail-heading">
+                <div class="detail-title-row">
+                    <span class="large-basket-number">{{ selected.device.matrix_id }}</span>
+                    <div>
+                        <p class="eyebrow">Panier physique</p>
+                        <h2>Panier {{ selected.device.matrix_id }}</h2>
+                        <p>{{ selected.device.device_code }} · session ouverte à {{ selected.opened_at|date:"H:i" }}</p>
+                    </div>
+                </div>
+                <div class="detail-statuses">
+                    <span class="status-badge {% if selected.status == 'OPEN' %}status-success{% else %}status-warning{% endif %}" data-basket-status>{{ selected.get_status_display }}</span>
+                    <span class="status-badge status-neutral" data-live-state>Connexion en cours</span>
+                </div>
+            </header>
+
+            <div class="ledger-heading">
+                <div><span class="eyebrow">Contenu détecté</span><h3><span data-basket-count>{{ selected_totals.items }}</span> article{{ selected_totals.items|pluralize }}</h3></div>
+                <span class="last-update">Dernière mise à jour <time data-basket-updated>{{ selected.updated_at|date:"H:i:s" }}</time></span>
+            </div>
+
+            <div class="ledger-table-wrap {% if not selected.lines.all %}is-empty{% endif %}" data-ledger-wrap>
+                <table class="ledger-table">
+                    <thead><tr><th>Article</th><th>Prix unitaire</th><th>Quantité</th><th class="align-right">Sous-total</th></tr></thead>
+                    <tbody data-basket-lines>
+                        {% for line in selected.lines.all %}
+                        <tr>
+                            <td data-label="Article"><span class="product-cell"><strong>{{ line.product.name }}</strong><small>{{ line.product.sku }}</small></span></td>
+                            <td data-label="Prix unitaire" class="price">{{ line.unit_price_snapshot|floatformat:0 }} FC</td>
+                            <td data-label="Quantité"><span class="quantity-readonly">{{ line.quantity }}</span></td>
+                            <td data-label="Sous-total" class="align-right price strong">{{ line.subtotal|floatformat:0 }} FC</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                <div class="ledger-empty" data-basket-empty {% if selected.lines.all %}hidden{% endif %}>
+                    <span class="empty-illustration"><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M10 17h28l-2.5 20h-23zM16 17l5-9m11 9-5-9M18 23v7m12-7v7"/></svg></span>
+                    <strong>Le panier est encore vide</strong>
+                    <p>Un article apparaîtra ici dès que la Raspberry Pi enverra un ajout stable.</p>
+                </div>
+            </div>
+
+            <footer class="basket-total-bar">
+                <span><small>Total du panier</small><strong data-basket-total>{{ selected_totals.total|floatformat:0 }} FC</strong></span>
+                {% if selected.status == 'CHECKOUT_PENDING' %}
+                <a class="button button-primary" href="{% url 'ui:checkout-detail' selected.id %}">Vérifier à la caisse</a>
+                {% else %}
+                <span class="total-help">Le scan de la matrice l'enverra à la caisse.</span>
+                {% endif %}
+            </footer>
+        </div>
+        {% else %}
+        <div class="empty-detail">
+            <span class="empty-illustration"><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M10 17h28l-2.5 20h-23zM16 17l5-9m11 9-5-9M18 23v7m12-7v7"/></svg></span>
+            <p class="eyebrow">Aucun panier actif</p>
+            <h2>Le contenu apparaîtra ici</h2>
+            <p>Quand une Raspberry Pi enverra son heartbeat, Django ouvrira une session de panier.</p>
+        </div>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}
