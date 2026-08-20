@@ -12,13 +12,13 @@ from rest_framework.views import APIView
 from apps.baskets.models import BasketLine, BasketSession, DetectionEvent
 from apps.baskets.services import detection_result_payload, ingest_detection
 from apps.checkout.models import Sale
-from apps.checkout.services import DomainError, complete_sale
 from apps.devices.authentication import BasketDeviceAuthentication
 from apps.devices.models import BasketDevice, DeviceCommand
 from apps.devices.services import active_session_for_device
 from apps.devices.throttles import DeviceRateThrottle
 
-from .models import RfidCard, RfidEnrollmentRequest, Wallet, WalletTransaction
+from .models import RfidCard, RfidEnrollmentRequest, Wallet
+from .payment_services import prepare_rfid_payment_request
 from .services import normalize_rfid_uid, record_rfid_enrollment_request
 
 
@@ -67,20 +67,6 @@ class StartSessionView(IoTAPIView):
             .first()
         )
         if card is None:
-            active_session = active_session_for_device(request.auth)
-            if request.auth.reset_state != BasketDevice.ResetState.READY:
-                return _message_response(
-                    code="DEVICE_RESET_PENDING",
-                    message="The device must acknowledge its reset before a new session.",
-                    http_status=status.HTTP_409_CONFLICT,
-                )
-            if active_session is not None:
-                return _message_response(
-                    code="SESSION_ALREADY_ACTIVE",
-                    message="The device already serves another customer.",
-                    http_status=status.HTTP_409_CONFLICT,
-                )
-
             BasketDevice.objects.filter(pk=request.auth.pk).update(last_seen_at=timezone.now())
             enrollment, _created = record_rfid_enrollment_request(device=request.auth, raw_uid=uid)
             if enrollment.status == RfidEnrollmentRequest.Status.PENDING:
@@ -113,12 +99,6 @@ class StartSessionView(IoTAPIView):
         with transaction.atomic():
             device = BasketDevice.objects.select_for_update().get(pk=request.auth.pk)
             BasketDevice.objects.filter(pk=device.pk).update(last_seen_at=timezone.now())
-            if device.reset_state != BasketDevice.ResetState.READY:
-                return _message_response(
-                    code="DEVICE_RESET_PENDING",
-                    message="The device must acknowledge its reset before a new session.",
-                    http_status=status.HTTP_409_CONFLICT,
-                )
             session = (
                 BasketSession.objects.select_for_update()
                 .filter(
@@ -127,6 +107,24 @@ class StartSessionView(IoTAPIView):
                 )
                 .first()
             )
+            if device.reset_state != BasketDevice.ResetState.READY and session is not None:
+                return _message_response(
+                    code="DEVICE_RESET_PENDING",
+                    message="The device must acknowledge its reset before a new session.",
+                    http_status=status.HTTP_409_CONFLICT,
+                )
+            if device.reset_state != BasketDevice.ResetState.READY:
+                acknowledged_at = timezone.now()
+                DeviceCommand.objects.filter(
+                    device=device,
+                    command_type=DeviceCommand.Type.RESET_SESSION,
+                    status=DeviceCommand.Status.PENDING,
+                ).update(
+                    status=DeviceCommand.Status.ACKNOWLEDGED,
+                    acknowledged_at=acknowledged_at,
+                )
+                device.reset_state = BasketDevice.ResetState.READY
+                device.save(update_fields=("reset_state", "updated_at"))
             if session is None:
                 session = BasketSession.objects.create(device=device, customer=card.customer)
             if session.customer_id and session.customer_id != card.customer_id:
@@ -418,51 +416,30 @@ class RfidPaymentView(BasketIoTView):
             session.status = BasketSession.Status.CHECKOUT_PENDING
             session.version += 1
 
-        debited = Wallet.objects.filter(pk=wallet.pk, balance__gte=total).update(
-            balance=F("balance") - total
+        payment_request, sufficient = prepare_rfid_payment_request(
+            session=session,
+            device=request.auth,
+            card=card,
+            wallet=wallet,
+            idempotency_key=key,
+            amount=total,
         )
-        if debited != 1:
-            transaction.set_rollback(True)
+        if not sufficient:
             return _message_response(
                 code="INSUFFICIENT_FUNDS",
                 message="Wallet balance is insufficient.",
                 http_status=status.HTTP_402_PAYMENT_REQUIRED,
+                payment_request_id=str(payment_request.id),
+                amount=str(total),
+                balance=str(wallet.balance),
             )
-        wallet.refresh_from_db(fields=("balance",))
-        try:
-            sale, _duplicate = complete_sale(
-                session.id,
-                None,
-                key,
-                {"expected_version": session.version, "payment_method": "RFID", "payment_status": "PAID"},
-                payment_device=request.auth,
-            )
-        except DomainError as exc:
-            transaction.set_rollback(True)
-            return _message_response(
-                code="PAYMENT_DECLINED",
-                message=exc.code,
-                http_status=exc.http_status,
-            )
-        WalletTransaction.objects.create(
-            wallet=wallet,
-            sale=sale,
-            kind=WalletTransaction.Kind.RFID_PAYMENT,
-            amount=-total,
-            balance_after=wallet.balance,
-            idempotency_key=key,
-            reason=f"Paiement RFID {sale.sale_number}",
-        )
-        command = DeviceCommand.objects.get(
-            device=request.auth,
-            command_type=DeviceCommand.Type.RESET_SESSION,
-            session_id=session.id,
-        )
         return Response(
             {
-                "status": "PAID",
-                "payment_status": "PAID",
-                "sale_number": sale.sale_number,
-                "reset_command_id": str(command.id),
-            }
+                "status": "PAYMENT_CONFIRMATION_PENDING",
+                "payment_status": "PENDING",
+                "payment_request_id": str(payment_request.id),
+                "amount": str(total),
+                "balance": str(wallet.balance),
+            },
+            status=status.HTTP_202_ACCEPTED,
         )

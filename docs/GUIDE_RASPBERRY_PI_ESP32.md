@@ -8,11 +8,12 @@ d'appairage et ne conserve aucun identifiant de panier ou de facture.
 
 1. La première lecture d'une carte RFID connue ouvre une facture sur le backend.
 2. Les détections de la caméra sont rattachées à la facture active de la Pi.
-3. Une seconde lecture de la même carte demande le paiement RFID.
-4. Django vérifie le client, le wallet et le stock, puis débite le wallet,
-   décrémente le stock et clôture la facture dans une seule transaction.
-5. La Pi exécute la commande de réinitialisation et l'acquitte.
-6. La prochaine lecture RFID ouvre une nouvelle facture.
+3. Une seconde lecture de la même carte crée une demande de paiement RFID.
+4. La Pi attend pendant qu’un caissier confirme ou refuse dans le popup backend.
+5. Après confirmation, Django vérifie le wallet et le stock, débite, décrémente
+   le stock et clôture la facture dans une seule transaction.
+6. La Pi exécute la commande de réinitialisation et l'acquitte.
+7. La prochaine lecture RFID ouvre une nouvelle facture.
 
 Le paiement peut aussi être confirmé manuellement par un caissier. Les factures
 clôturées restent consultables dans **Factures**.
@@ -60,7 +61,7 @@ curl http://IP_DU_PC:8000/health/live
 | `POST` | `/api/iot/devices/{device_id}/invoice/start/` | Ouvre ou reprend la facture après lecture RFID |
 | `POST` | `/api/iot/devices/{device_id}/invoice/detections/` | Ajoute un article à la facture active |
 | `GET` | `/api/iot/devices/{device_id}/invoice/status/` | Lit l'état courant ou la commande de reset |
-| `POST` | `/api/iot/devices/{device_id}/invoice/rfid-payment/` | Demande au backend de confirmer et exécuter le paiement |
+| `POST` | `/api/iot/devices/{device_id}/invoice/rfid-payment/` | Crée une demande à confirmer côté backend |
 | `POST` | `/api/v1/devices/{device_id}/heartbeat` | Signale la présence sans créer de facture |
 | `POST` | `/api/v1/devices/{device_id}/commands/{command_id}/ack` | Confirme que le reset local est terminé |
 
@@ -100,8 +101,10 @@ Content-Type: application/json
 {"rfid_uid":"04A732B19C"}
 ```
 
-La réponse `PAID` contient le numéro public de la facture et l'identifiant de la
-commande de reset. La Pi n'a pas à interpréter un identifiant interne de panier.
+La première réponse est `202 PAYMENT_CONFIRMATION_PENDING` si le solde affiché
+est suffisant, ou `402 INSUFFICIENT_FUNDS` sans débit. La Pi passe à
+`CHECKOUT_PENDING` et relit le statut. Après le clic du caissier, la réponse de
+statut `PAID` contient la commande de reset.
 
 ## 4. États attendus côté Pi
 

@@ -5,7 +5,14 @@ from django.utils.html import format_html
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import path, reverse
 
-from .models import Customer, RfidCard, RfidEnrollmentRequest, Wallet, WalletTransaction
+from .models import (
+    Customer,
+    RfidCard,
+    RfidEnrollmentRequest,
+    RfidPaymentRequest,
+    Wallet,
+    WalletTransaction,
+)
 from .services import WalletError, credit_wallet
 
 
@@ -103,6 +110,17 @@ class WalletTransactionAdmin(admin.ModelAdmin):
     list_filter = ("kind",)
     search_fields = ("wallet__customer__customer_code", "sale__sale_number", "reason")
     readonly_fields = tuple(field.name for field in WalletTransaction._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(RfidPaymentRequest)
+class RfidPaymentRequestAdmin(admin.ModelAdmin):
+    list_display = ("id", "session", "card", "amount", "balance_snapshot", "status", "requested_at")
+    list_filter = ("status", "device")
+    search_fields = ("card__uid", "card__customer__display_name", "session__id")
+    readonly_fields = tuple(field.name for field in RfidPaymentRequest._meta.fields)
 
     def has_add_permission(self, request):
         return False

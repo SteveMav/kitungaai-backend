@@ -87,3 +87,16 @@ class RfidEnrollmentConsumer(DomainConsumer):
         self.group_name = "rfid_enrollment"
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
+
+
+class RfidPaymentConsumer(DomainConsumer):
+    """Live payment confirmation channel for cashiers and supervisors."""
+
+    async def connect(self):
+        user = self.scope.get("user")
+        if not await user_has_cashier_access(user):
+            await self.close(code=4403 if getattr(user, "is_authenticated", False) else 4401)
+            return
+        self.group_name = "rfid_payment"
+        await self.channel_layer.group_add(self.group_name, self.channel_name)
+        await self.accept()

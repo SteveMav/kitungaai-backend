@@ -94,6 +94,21 @@
                     <p class="eyebrow">Récapitulatif</p>
                     <h3 id="summary-title">Confirmer la vente</h3>
                     <dl class="summary-list"><div><dt>Articles</dt><dd>{{ selected_totals.items }}</dd></div><div><dt>Sous-total</dt><dd>{{ selected_totals.total|floatformat:0 }} FC</dd></div><div class="summary-total"><dt>{% if selected_totals.uncatalogued_items %}Total des articles répertoriés{% else %}Total{% endif %}</dt><dd>{{ selected_totals.total|floatformat:0 }} FC</dd></div></dl>
+                    {% if rfid_payment_request %}
+                    <section class="rfid-payment-panel {% if rfid_payment_request.status == 'INSUFFICIENT_FUNDS' %}is-insufficient{% endif %}" aria-label="Demande de paiement RFID">
+                        <span class="status-badge {% if rfid_payment_request.status == 'PENDING' %}status-warning{% elif rfid_payment_request.status == 'INSUFFICIENT_FUNDS' %}status-danger{% else %}status-neutral{% endif %}">{{ rfid_payment_request.get_status_display }}</span>
+                        <strong>{{ rfid_payment_request.card.customer.display_name }}</strong>
+                        <dl><div><dt>À payer</dt><dd>{{ rfid_payment_request.amount|floatformat:0 }} FC</dd></div><div><dt>Solde RFID</dt><dd>{{ rfid_payment_request.balance_snapshot|floatformat:0 }} FC</dd></div></dl>
+                        {% if can_complete and rfid_payment_request.status == 'PENDING' %}
+                        <div class="rfid-payment-panel-actions">
+                            <form method="post" action="{% url 'ui:rfid-payment-reject' rfid_payment_request.id %}">{% csrf_token %}<button class="button button-secondary button-compact" type="submit">Refuser</button></form>
+                            <form method="post" action="{% url 'ui:rfid-payment-confirm' rfid_payment_request.id %}" data-confirm="Débiter {{ rfid_payment_request.amount|floatformat:0 }} FC et créer la facture ?">{% csrf_token %}<button class="button button-primary button-compact" type="submit">Confirmer RFID</button></form>
+                        </div>
+                        {% elif rfid_payment_request.status == 'INSUFFICIENT_FUNDS' %}
+                        <p>Aucun débit ne sera effectué. Rechargez la carte, puis confirmez lorsqu'un solde suffisant est affiché.</p>
+                        {% endif %}
+                    </section>
+                    {% endif %}
                     {% if can_complete %}
                     <form class="stack-form checkout-form" method="post" action="{% url 'ui:complete-checkout' selected.id %}" data-confirm="Confirmer cette vente et décrémenter le stock ?">
                         {% csrf_token %}

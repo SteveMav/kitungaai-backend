@@ -1,3 +1,4 @@
+import uuid
 from decimal import Decimal
 
 from django.conf import settings
@@ -142,3 +143,55 @@ class WalletTransaction(models.Model):
 
     def __str__(self):
         return f"{self.wallet.customer.customer_code}: {self.amount:+.2f}"
+
+
+class RfidPaymentRequest(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "Confirmation attendue"
+        INSUFFICIENT_FUNDS = "INSUFFICIENT_FUNDS", "Solde insuffisant"
+        APPROVED = "APPROVED", "Confirmée"
+        REJECTED = "REJECTED", "Refusée"
+        CANCELLED = "CANCELLED", "Annulée"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    session = models.OneToOneField(
+        "baskets.BasketSession",
+        on_delete=models.PROTECT,
+        related_name="rfid_payment_request",
+    )
+    device = models.ForeignKey(
+        "devices.BasketDevice",
+        on_delete=models.PROTECT,
+        related_name="rfid_payment_requests",
+    )
+    card = models.ForeignKey(RfidCard, on_delete=models.PROTECT, related_name="payment_requests")
+    wallet = models.ForeignKey(Wallet, on_delete=models.PROTECT, related_name="payment_requests")
+    sale = models.OneToOneField(
+        "checkout.Sale",
+        on_delete=models.PROTECT,
+        related_name="rfid_payment_request",
+        null=True,
+        blank=True,
+    )
+    idempotency_key = models.UUIDField(unique=True)
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    balance_snapshot = models.DecimalField(max_digits=14, decimal_places=2)
+    session_version = models.PositiveIntegerField()
+    status = models.CharField(max_length=24, choices=Status, default=Status.PENDING)
+    requested_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="reviewed_rfid_payments",
+        null=True,
+        blank=True,
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("-requested_at",)
+        indexes = [models.Index(fields=("status", "requested_at"))]
+
+    def __str__(self):
+        return f"{self.session_id}: {self.amount:.2f} FC [{self.status}]"

@@ -158,3 +158,56 @@ class RfidEnrollmentRejectionForm(forms.Form):
         label="Motif du refus",
         widget=forms.TextInput(attrs={"placeholder": "Optionnel"}),
     )
+
+
+class RfidCardRegistrationForm(forms.Form):
+    uid = forms.CharField(
+        max_length=64,
+        label="UID de la carte",
+        widget=forms.TextInput(attrs={"placeholder": "C3D54714", "autocomplete": "off"}),
+    )
+    customer = forms.ModelChoiceField(
+        queryset=Customer.objects.none(),
+        label="Client",
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["customer"].queryset = Customer.objects.filter(is_active=True).order_by(
+            "display_name", "customer_code"
+        )
+
+    def clean_uid(self):
+        uid = "".join(self.cleaned_data["uid"].strip().upper().split())
+        if not uid:
+            raise forms.ValidationError("Indiquez l'UID de la carte.")
+        return uid
+
+
+class RfidCardAssignmentForm(forms.Form):
+    customer = forms.ModelChoiceField(
+        queryset=Customer.objects.none(),
+        label="Client",
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["customer"].queryset = Customer.objects.filter(is_active=True).order_by(
+            "display_name", "customer_code"
+        )
+
+
+class WalletTopUpForm(forms.Form):
+    amount = forms.DecimalField(
+        min_value=1,
+        max_digits=14,
+        decimal_places=2,
+        label="Montant (FC)",
+        widget=forms.NumberInput(attrs={"min": "1", "step": "1", "placeholder": "10000"}),
+    )
+    reason = forms.CharField(
+        max_length=255,
+        required=False,
+        label="Motif",
+        widget=forms.TextInput(attrs={"placeholder": "Dépôt client"}),
+    )

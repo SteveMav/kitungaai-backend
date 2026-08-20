@@ -11,6 +11,7 @@ from apps.baskets.models import BasketLine, BasketSession, UncataloguedBasketLin
 from apps.catalog.models import VisionLabel
 from apps.checkout.models import Sale, StockMovement
 from apps.devices.models import BasketDevice, CheckoutTerminal
+from apps.wallets.models import Customer, RfidCard, RfidEnrollmentRequest, Wallet, WalletTransaction
 
 
 class KitungaUiTests(TestCase):
@@ -69,6 +70,104 @@ class KitungaUiTests(TestCase):
         self.client.force_login(cashier)
         response = self.client.get(reverse("ui:rfid-enrollments"))
         self.assertEqual(response.status_code, 403)
+        response = self.client.post(
+            reverse("ui:rfid-card-register"),
+            data={"uid": "AABBCCDD", "customer": "1"},
+        )
+        self.assertEqual(response.status_code, 403)
+        response = self.client.post(
+            reverse("ui:rfid-card-top-up", args=[1]),
+            data={"amount": "5000", "reason": "Test"},
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_administrator_can_manage_registered_rfid_cards(self):
+        first_customer = Customer.objects.create(
+            customer_code="CUST-RFID-01",
+            display_name="Premier client",
+        )
+        second_customer = Customer.objects.create(
+            customer_code="CUST-RFID-02",
+            display_name="Deuxième client",
+        )
+        enrollment = RfidEnrollmentRequest.objects.create(
+            uid="AA BB CC DD",
+            device=self.device,
+        )
+        self.client.force_login(self.user)
+
+        added = self.client.post(
+            reverse("ui:rfid-card-register"),
+            data={"uid": "aa bb cc dd", "customer": first_customer.id},
+        )
+        self.assertRedirects(added, reverse("ui:rfid-enrollments"))
+        card = RfidCard.objects.get(uid="AABBCCDD")
+        enrollment.refresh_from_db()
+        self.assertEqual(card.customer, first_customer)
+        self.assertEqual(enrollment.status, RfidEnrollmentRequest.Status.APPROVED)
+
+        topped_up = self.client.post(
+            reverse("ui:rfid-card-top-up", args=[card.id]),
+            data={"amount": "5000", "reason": "Dépôt test"},
+        )
+        self.assertRedirects(topped_up, reverse("ui:rfid-enrollments"))
+        wallet = Wallet.objects.get(customer=first_customer)
+        self.assertEqual(wallet.balance, 5000)
+        self.assertTrue(
+            WalletTransaction.objects.filter(
+                wallet=wallet,
+                kind=WalletTransaction.Kind.TOP_UP,
+                amount=5000,
+                created_by=self.user,
+            ).exists()
+        )
+
+        page = self.client.get(reverse("ui:rfid-enrollments"))
+        self.assertContains(page, "AABBCCDD")
+        self.assertContains(page, "Premier client")
+        self.assertContains(page, "Désactiver")
+
+        reassigned = self.client.post(
+            reverse("ui:rfid-card-reassign", args=[card.id]),
+            data={"customer": second_customer.id},
+        )
+        self.assertRedirects(reassigned, reverse("ui:rfid-enrollments"))
+        card.refresh_from_db()
+        enrollment.refresh_from_db()
+        self.assertEqual(card.customer, second_customer)
+        self.assertEqual(enrollment.customer, second_customer)
+
+        disabled = self.client.post(reverse("ui:rfid-card-toggle", args=[card.id]))
+        self.assertRedirects(disabled, reverse("ui:rfid-enrollments"))
+        card.refresh_from_db()
+        self.assertFalse(card.is_active)
+        self.assertIsNotNone(card.disabled_at)
+
+        reactivated = self.client.post(reverse("ui:rfid-card-toggle", args=[card.id]))
+        self.assertRedirects(reactivated, reverse("ui:rfid-enrollments"))
+        card.refresh_from_db()
+        self.assertTrue(card.is_active)
+        self.assertIsNone(card.disabled_at)
+
+        removed = self.client.post(reverse("ui:rfid-card-remove", args=[card.id]))
+        self.assertRedirects(removed, reverse("ui:rfid-enrollments"))
+        self.assertFalse(RfidCard.objects.filter(pk=card.id).exists())
+        self.assertFalse(RfidEnrollmentRequest.objects.filter(uid="AABBCCDD").exists())
+
+        self.client.logout()
+        rescanned = self.client.post(
+            reverse("iot-session-start", args=[self.device.device_code]),
+            data={"rfid_uid": "AA BB CC DD"},
+            content_type="application/json",
+        )
+        self.assertEqual(rescanned.status_code, 202)
+        self.assertEqual(rescanned.json()["status"], "RFID_ENROLLMENT_PENDING")
+        self.assertTrue(
+            RfidEnrollmentRequest.objects.filter(
+                uid="AABBCCDD",
+                status=RfidEnrollmentRequest.Status.PENDING,
+            ).exists()
+        )
 
     def test_product_form_has_no_barcode_and_audits_stock_change(self):
         self.client.force_login(self.user)
