@@ -107,8 +107,42 @@
     >
         <div class="rfid-notice-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 5.5h14v13H5zM8 9h8M8 12h5m2.5 3.5 1.5 1.5 3-3"/></svg></div>
         <div class="rfid-notice-copy"><strong data-rfid-notice-title>Carte RFID à traiter</strong><p data-rfid-notice-message>Une carte attend votre validation.</p></div>
-        <a class="button button-primary button-compact" data-rfid-notice-link href="{% url 'ui:rfid-enrollments' %}">Gérer</a>
+        <a class="button button-primary button-compact" data-rfid-notice-link href="{% url 'ui:rfid-enrollments' %}">Ajouter</a>
         <button class="icon-button" type="button" data-rfid-notice-dismiss aria-label="Masquer la notification"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17"/></svg></button>
+    </aside>
+    {% endif %}
+    {% if can_process_rfid_payments %}
+    <aside
+        class="rfid-notice rfid-payment-notice"
+        data-rfid-payment-notice
+        data-request-id="{% if pending_rfid_payment %}{{ pending_rfid_payment.id }}{% endif %}"
+        data-session-id="{% if pending_rfid_payment %}{{ pending_rfid_payment.session_id }}{% endif %}"
+        data-customer="{% if pending_rfid_payment %}{{ pending_rfid_payment.card.customer.display_name }}{% endif %}"
+        data-matrix-id="{% if pending_rfid_payment %}{{ pending_rfid_payment.device.matrix_id }}{% endif %}"
+        data-amount="{% if pending_rfid_payment %}{{ pending_rfid_payment.amount }}{% endif %}"
+        data-balance="{% if pending_rfid_payment %}{{ pending_rfid_payment.balance_snapshot }}{% endif %}"
+        data-status="{% if pending_rfid_payment %}{{ pending_rfid_payment.status }}{% endif %}"
+        role="dialog"
+        aria-labelledby="rfid-payment-title"
+        hidden
+    >
+        <div class="rfid-notice-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 6.5h16v11H4zM4 10h16m-5 4h2"/></svg></div>
+        <div class="rfid-notice-copy">
+            <strong id="rfid-payment-title" data-rfid-payment-title>Paiement RFID à confirmer</strong>
+            <p data-rfid-payment-message>Vérifiez le montant et le solde avant de confirmer.</p>
+        </div>
+        <div class="rfid-payment-actions">
+            <a class="button button-secondary button-compact" data-rfid-payment-detail href="{% if pending_rfid_payment %}{% url 'ui:checkout-detail' pending_rfid_payment.session_id %}{% else %}{% url 'ui:checkout' %}{% endif %}">Voir le panier</a>
+            <form method="post" data-rfid-payment-reject action="{% if pending_rfid_payment %}{% url 'ui:rfid-payment-reject' pending_rfid_payment.id %}{% endif %}">
+                {% csrf_token %}
+                <button class="button button-secondary button-compact" type="submit">Refuser</button>
+            </form>
+            <form method="post" data-rfid-payment-confirm action="{% if pending_rfid_payment %}{% url 'ui:rfid-payment-confirm' pending_rfid_payment.id %}{% endif %}">
+                {% csrf_token %}
+                <button class="button button-primary button-compact" type="submit">Confirmer le paiement</button>
+            </form>
+        </div>
+        <button class="icon-button" type="button" data-rfid-payment-dismiss aria-label="Masquer la demande de paiement"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17"/></svg></button>
     </aside>
     {% endif %}
     {% else %}

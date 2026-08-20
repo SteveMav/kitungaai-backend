@@ -7,7 +7,10 @@
         <h1>Cartes RFID</h1>
         <p>Une carte inconnue est enregistrée ici avant de pouvoir ouvrir un panier ou payer.</p>
     </div>
-    <span class="queue-count"><strong>{{ pending|length }}</strong> à traiter</span>
+    <div class="rfid-page-counts">
+        <span class="queue-count"><strong>{{ pending|length }}</strong> à traiter</span>
+        <span class="queue-count"><strong>{{ cards|length }}</strong> enregistrée{{ cards|length|pluralize }}</span>
+    </div>
 </header>
 
 <div class="master-detail rfid-workspace">
@@ -97,4 +100,79 @@
         {% endif %}
     </section>
 </div>
+
+<section class="rfid-card-registry" aria-labelledby="rfid-registry-title">
+    <header class="registry-heading">
+        <div>
+            <p class="eyebrow">Registre RFID</p>
+            <h2 id="rfid-registry-title">Cartes enregistrées</h2>
+            <p>Ajoutez une carte, rechargez son solde en francs et contrôlez son accès.</p>
+        </div>
+        <form class="rfid-register-form" method="post" action="{% url 'ui:rfid-card-register' %}">
+            {% csrf_token %}
+            <div class="field-group">
+                <label for="{{ card_form.uid.id_for_label }}">{{ card_form.uid.label }}</label>
+                {{ card_form.uid }}
+            </div>
+            <div class="field-group">
+                <label for="{{ card_form.customer.id_for_label }}">{{ card_form.customer.label }}</label>
+                {{ card_form.customer }}
+            </div>
+            <button class="button button-primary" type="submit">Ajouter la carte</button>
+        </form>
+    </header>
+
+    <div class="ledger-table-wrap rfid-card-table-wrap">
+        <table class="ledger-table rfid-card-table">
+            <thead>
+                <tr><th>Carte</th><th>Client associé</th><th>Solde / recharge</th><th>Statut</th><th>Date d'ajout</th><th class="align-right">Actions</th></tr>
+            </thead>
+            <tbody>
+                {% for card in cards %}
+                <tr>
+                    <td data-label="Carte"><strong class="rfid-uid">{{ card.uid }}</strong></td>
+                    <td data-label="Client">
+                        <form class="rfid-reassign-form" method="post" action="{% url 'ui:rfid-card-reassign' card.id %}">
+                            {% csrf_token %}
+                            <label class="sr-only" for="rfid-customer-{{ card.id }}">Client de la carte {{ card.uid }}</label>
+                            <select id="rfid-customer-{{ card.id }}" name="customer">
+                                {% for customer in customers %}
+                                <option value="{{ customer.id }}" {% if customer.id == card.customer_id %}selected{% endif %}>{{ customer.display_name }} · {{ customer.customer_code }}</option>
+                                {% endfor %}
+                            </select>
+                            <button class="button button-secondary button-compact" type="submit">Associer</button>
+                        </form>
+                    </td>
+                    <td data-label="Solde / recharge">
+                        <strong class="wallet-balance">{% if card.wallet %}{{ card.wallet.balance|floatformat:0 }}{% else %}0{% endif %} FC</strong>
+                        <form class="rfid-top-up-form" method="post" action="{% url 'ui:rfid-card-top-up' card.id %}">
+                            {% csrf_token %}
+                            <label class="sr-only" for="rfid-top-up-{{ card.id }}">Montant à ajouter à la carte {{ card.uid }}</label>
+                            <input id="rfid-top-up-{{ card.id }}" type="number" name="amount" min="1" step="1" placeholder="Montant FC" required>
+                            <input type="hidden" name="reason" value="Rechargement depuis le registre RFID">
+                            <button class="button button-primary button-compact" type="submit">Créditer</button>
+                        </form>
+                    </td>
+                    <td data-label="Statut"><span class="status-badge {% if card.is_active %}status-success{% else %}status-neutral{% endif %}">{% if card.is_active %}Active{% else %}Désactivée{% endif %}</span></td>
+                    <td data-label="Date d'ajout">{{ card.issued_at|date:"d/m/Y H:i" }}</td>
+                    <td data-label="Actions" class="align-right">
+                        <div class="rfid-card-actions">
+                            <form method="post" action="{% url 'ui:rfid-card-toggle' card.id %}">
+                                {% csrf_token %}
+                                <button class="button button-secondary button-compact" type="submit">{% if card.is_active %}Désactiver{% else %}Réactiver{% endif %}</button>
+                            </form>
+                            <form method="post" action="{% url 'ui:rfid-card-remove' card.id %}" data-confirm="Supprimer la carte {{ card.uid }} ? Son prochain scan demandera une nouvelle association.">
+                                {% csrf_token %}
+                                <button class="button button-danger button-compact" type="submit">Supprimer</button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="6"><div class="empty-master"><strong>Aucune carte enregistrée</strong><p>Scannez une carte inconnue ou ajoutez son UID ci-dessus.</p></div></td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
 {% endblock %}

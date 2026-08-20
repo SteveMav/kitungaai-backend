@@ -6,9 +6,11 @@ Django est la source de vérité. La Raspberry lit l’UID et envoie des labels 
 
 1. Le premier scan d’une carte connue crée une nouvelle facture `OPEN` pour cette Raspberry et identifie le client.
 2. Les détections suivantes sont rattachées automatiquement à cette facture active grâce au `device_id`.
-3. Le second passage de la même carte demande un paiement RFID. Django vérifie le client, le solde et le stock dans une transaction, débite le wallet, crée la vente, diminue le stock et clôture la facture.
-4. Un caissier peut aussi vérifier la facture puis confirmer un paiement manuel. Toute facture clôturée apparaît dans **Factures**.
-5. Après acquittement de la réinitialisation par la Pi, le prochain scan RFID crée une nouvelle facture.
+3. Le second passage de la même carte crée une demande de paiement et un popup côté backend. Aucun montant n’est encore débité.
+4. Un caissier autorisé confirme ou refuse. Si le solde suffit, Django débite le wallet, crée la vente, diminue le stock et clôture la facture dans une transaction. Sinon, aucun débit ni facture n’est créé.
+5. Un administrateur recharge le portefeuille en francs directement dans **Cartes RFID**. Une recharge suffisante réactive automatiquement la confirmation en attente.
+6. Un paiement manuel reste possible et toute facture clôturée apparaît dans **Factures**.
+7. Après acquittement de la réinitialisation par la Pi, le prochain scan RFID crée une nouvelle facture.
 
 Une seule facture peut être `OPEN` ou `CHECKOUT_PENDING` par Raspberry. Le système conserve sans limite fonctionnelle les factures terminées dans l’historique.
 
@@ -53,4 +55,4 @@ Pour vérifier le réseau :
 curl http://IP_DU_PC:8000/health/live
 ```
 
-Les notifications d’enrôlement restent réservées aux superutilisateurs et membres du groupe `Administrateur`. L’UID complet n’est affiché que sur la page protégée **Cartes RFID**.
+Les notifications d’enrôlement et le rechargement restent réservés aux superutilisateurs et membres du groupe `Administrateur`. Les demandes de paiement sont visibles aux rôles de caisse ; seule une identité possédant le droit de finaliser une vente peut confirmer ou refuser.

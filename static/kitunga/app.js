@@ -121,6 +121,7 @@
     const title = notice.querySelector("[data-rfid-notice-title]");
     const message = notice.querySelector("[data-rfid-notice-message]");
     const dismiss = notice.querySelector("[data-rfid-notice-dismiss]");
+    const manageLink = notice.querySelector("[data-rfid-notice-link]");
     const managePath = new URL(notice.dataset.manageUrl, window.location.origin).pathname;
     const isManagementPage = window.location.pathname === managePath;
     let pendingCount = Number(notice.dataset.pendingCount || "0");
@@ -166,10 +167,87 @@
             }
             if (!payload || !String(payload.type || "").startsWith("rfid.enrollment.")) return;
             pendingCount = Number(payload.pending_count || "0");
+            if (manageLink && payload.type === "rfid.enrollment.requested" && payload.enrollment_id) {
+                manageLink.href = `${managePath}${payload.enrollment_id}/`;
+            }
             if (pendingCount > 0 || payload.type !== "rfid.enrollment.approved") {
                 showNotice(payload.type);
             } else {
                 hideNotice();
+            }
+        });
+        socket.addEventListener("close", () => {
+            window.setTimeout(connect, reconnectDelay);
+            reconnectDelay = Math.min(reconnectDelay * 2, 15000);
+        });
+        socket.addEventListener("error", () => socket.close());
+    }
+
+    connect();
+})();
+
+(() => {
+    const notice = document.querySelector("[data-rfid-payment-notice]");
+    if (!notice) return;
+
+    const title = notice.querySelector("[data-rfid-payment-title]");
+    const message = notice.querySelector("[data-rfid-payment-message]");
+    const detailLink = notice.querySelector("[data-rfid-payment-detail]");
+    const confirmForm = notice.querySelector("[data-rfid-payment-confirm]");
+    const rejectForm = notice.querySelector("[data-rfid-payment-reject]");
+    const dismiss = notice.querySelector("[data-rfid-payment-dismiss]");
+    const money = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
+    let currentRequestId = notice.dataset.requestId || "";
+
+    function renderPayment(payload) {
+        currentRequestId = String(payload.request_id || "");
+        const status = String(payload.status || "");
+        const amount = money.format(Number(payload.amount || 0));
+        const balance = money.format(Number(payload.balance || 0));
+        const customer = String(payload.customer || "Client RFID");
+        const matrix = String(payload.matrix_id || "—");
+        title.textContent = status === "INSUFFICIENT_FUNDS"
+            ? "Solde RFID insuffisant"
+            : "Paiement RFID à confirmer";
+        message.textContent = `${customer} · panier ${matrix} · ${amount} FC · solde ${balance} FC`;
+        detailLink.href = `/caisse/${encodeURIComponent(String(payload.session_id || ""))}/`;
+        confirmForm.action = `/paiements-rfid/${encodeURIComponent(currentRequestId)}/confirmer/`;
+        rejectForm.action = `/paiements-rfid/${encodeURIComponent(currentRequestId)}/refuser/`;
+        confirmForm.hidden = status !== "PENDING";
+        notice.classList.toggle("is-insufficient", status === "INSUFFICIENT_FUNDS");
+        notice.hidden = false;
+    }
+
+    dismiss?.addEventListener("click", () => { notice.hidden = true; });
+    if (currentRequestId) {
+        renderPayment({
+            request_id: currentRequestId,
+            session_id: notice.dataset.sessionId,
+            customer: notice.dataset.customer,
+            matrix_id: notice.dataset.matrixId,
+            amount: notice.dataset.amount,
+            balance: notice.dataset.balance,
+            status: notice.dataset.status,
+        });
+    }
+
+    let reconnectDelay = 1000;
+    function connect() {
+        const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+        const socket = new WebSocket(`${protocol}://${window.location.host}/ws/v1/rfid-payments/`);
+        socket.addEventListener("open", () => { reconnectDelay = 1000; });
+        socket.addEventListener("message", (event) => {
+            let payload;
+            try {
+                payload = JSON.parse(event.data);
+            } catch (_error) {
+                return;
+            }
+            if (!payload || !String(payload.type || "").startsWith("rfid.payment.")) return;
+            if (payload.type === "rfid.payment.requested" || payload.type === "rfid.payment.insufficient") {
+                renderPayment(payload);
+            } else if (!currentRequestId || String(payload.request_id) === currentRequestId) {
+                notice.hidden = true;
             }
         });
         socket.addEventListener("close", () => {

@@ -215,6 +215,10 @@ def correct_line(session_id, line_id, user, payload):
     if changed != 1:
         raise DomainError("version_conflict", 409)
 
+    from apps.wallets.payment_services import cancel_rfid_payment_request_for_session
+
+    cancel_rfid_payment_request_for_session(session_id=session.id)
+
     if payload["quantity"] == 0:
         after = {}
         correction_line_id = line.id
@@ -272,6 +276,10 @@ def remove_uncatalogued_line(session_id, line_id, user, payload):
     if changed != 1:
         raise DomainError("version_conflict", 409)
 
+    from apps.wallets.payment_services import cancel_rfid_payment_request_for_session
+
+    cancel_rfid_payment_request_for_session(session_id=session.id)
+
     BasketCorrection.objects.create(
         session=session,
         line_id=line.id,
@@ -312,6 +320,10 @@ def release_basket(session_id, user, payload):
     if changed != 1:
         raise DomainError("version_conflict", 409)
 
+    from apps.wallets.payment_services import cancel_rfid_payment_request_for_session
+
+    cancel_rfid_payment_request_for_session(session_id=session.id)
+
     BasketCorrection.objects.create(
         session=session,
         author=user,
@@ -349,6 +361,10 @@ def cancel_basket(session_id, user, payload):
     )
     if changed != 1:
         raise DomainError("version_conflict", 409)
+
+    from apps.wallets.payment_services import cancel_rfid_payment_request_for_session
+
+    cancel_rfid_payment_request_for_session(session_id=session.id)
 
     BasketCorrection.objects.create(
         session=session,

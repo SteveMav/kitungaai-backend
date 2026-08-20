@@ -20,6 +20,10 @@ class RfidEnrollmentError(Exception):
         self.code = code
 
 
+def _schedule_enrollment_event(event_type, enrollment):
+    transaction.on_commit(lambda: _publish_enrollment_event(event_type, enrollment))
+
+
 def normalize_rfid_uid(raw_uid):
     return "".join(str(raw_uid).strip().upper().split())
 
@@ -55,12 +59,11 @@ def record_rfid_enrollment_request(*, device, raw_uid):
                     enrollment.seen_count = F("seen_count") + 1
                     enrollment.save(update_fields=("device", "seen_count", "last_seen_at"))
                     enrollment.refresh_from_db(fields=("seen_count", "last_seen_at", "device"))
+                    _schedule_enrollment_event("rfid.enrollment.requested", enrollment)
                 return enrollment, False
 
             enrollment = RfidEnrollmentRequest.objects.create(uid=uid, device=device)
-            transaction.on_commit(
-                lambda: _publish_enrollment_event("rfid.enrollment.requested", enrollment)
-            )
+            _schedule_enrollment_event("rfid.enrollment.requested", enrollment)
             return enrollment, True
     except IntegrityError:
         enrollment = RfidEnrollmentRequest.objects.select_related("device").get(uid=uid)
@@ -118,7 +121,7 @@ def approve_rfid_enrollment(*, enrollment_id, reviewer, existing_customer=None, 
             "last_seen_at",
         )
     )
-    transaction.on_commit(lambda: _publish_enrollment_event("rfid.enrollment.approved", enrollment))
+    _schedule_enrollment_event("rfid.enrollment.approved", enrollment)
     return enrollment, customer
 
 
@@ -136,8 +139,85 @@ def reject_rfid_enrollment(*, enrollment_id, reviewer, reason=""):
     enrollment.save(
         update_fields=("status", "reviewed_by", "reviewed_at", "rejection_reason", "last_seen_at")
     )
-    transaction.on_commit(lambda: _publish_enrollment_event("rfid.enrollment.rejected", enrollment))
+    _schedule_enrollment_event("rfid.enrollment.rejected", enrollment)
     return enrollment
+
+
+@transaction.atomic
+def register_rfid_card(*, raw_uid, customer, reviewer):
+    uid = normalize_rfid_uid(raw_uid)
+    if not uid:
+        raise RfidEnrollmentError("rfid_uid_required")
+    customer = Customer.objects.select_for_update().filter(pk=customer.pk, is_active=True).first()
+    if customer is None:
+        raise RfidEnrollmentError("customer_not_available")
+    if RfidCard.objects.filter(uid=uid).exists():
+        raise RfidEnrollmentError("rfid_uid_already_assigned")
+    try:
+        with transaction.atomic():
+            card = RfidCard.objects.create(customer=customer, uid=uid)
+    except IntegrityError as exc:
+        raise RfidEnrollmentError("rfid_uid_already_assigned") from exc
+    Wallet.objects.get_or_create(customer=customer)
+
+    enrollment = RfidEnrollmentRequest.objects.select_for_update().filter(uid=uid).first()
+    if enrollment is not None:
+        enrollment.status = RfidEnrollmentRequest.Status.APPROVED
+        enrollment.customer = customer
+        enrollment.reviewed_by = reviewer
+        enrollment.reviewed_at = timezone.now()
+        enrollment.rejection_reason = ""
+        enrollment.save(
+            update_fields=(
+                "status",
+                "customer",
+                "reviewed_by",
+                "reviewed_at",
+                "rejection_reason",
+                "last_seen_at",
+            )
+        )
+        _schedule_enrollment_event("rfid.enrollment.approved", enrollment)
+    return card
+
+
+@transaction.atomic
+def reassign_rfid_card(*, card_id, customer):
+    card = RfidCard.objects.select_for_update().filter(pk=card_id).first()
+    if card is None:
+        raise RfidEnrollmentError("rfid_card_not_found")
+    customer = Customer.objects.select_for_update().filter(pk=customer.pk, is_active=True).first()
+    if customer is None:
+        raise RfidEnrollmentError("customer_not_available")
+    card.customer = customer
+    card.save(update_fields=("customer",))
+    Wallet.objects.get_or_create(customer=customer)
+    RfidEnrollmentRequest.objects.filter(uid=card.uid).update(customer=customer)
+    return card
+
+
+@transaction.atomic
+def toggle_rfid_card(*, card_id):
+    card = RfidCard.objects.select_for_update().filter(pk=card_id).first()
+    if card is None:
+        raise RfidEnrollmentError("rfid_card_not_found")
+    card.is_active = not card.is_active
+    card.disabled_at = None if card.is_active else timezone.now()
+    card.save(update_fields=("is_active", "disabled_at"))
+    return card
+
+
+@transaction.atomic
+def remove_rfid_card(*, card_id):
+    card = RfidCard.objects.select_for_update().filter(pk=card_id).first()
+    if card is None:
+        raise RfidEnrollmentError("rfid_card_not_found")
+    if card.payment_requests.exists():
+        raise RfidEnrollmentError("rfid_card_has_payment_history")
+    uid = card.uid
+    card.delete()
+    RfidEnrollmentRequest.objects.filter(uid=uid).delete()
+    return uid
 
 
 @transaction.atomic
@@ -151,7 +231,7 @@ def credit_wallet(*, wallet_id, amount, user, reason):
         raise WalletError("wallet_not_found")
     Wallet.objects.filter(pk=wallet.pk).update(balance=F("balance") + amount)
     wallet.refresh_from_db(fields=("balance",))
-    return WalletTransaction.objects.create(
+    wallet_transaction = WalletTransaction.objects.create(
         wallet=wallet,
         kind=WalletTransaction.Kind.TOP_UP,
         amount=amount,
@@ -159,6 +239,10 @@ def credit_wallet(*, wallet_id, amount, user, reason):
         reason=reason.strip()[:255],
         created_by=user,
     )
+    from .payment_services import refresh_insufficient_payment_requests
+
+    refresh_insufficient_payment_requests(wallet)
+    return wallet_transaction
 
 
 def new_payment_key():

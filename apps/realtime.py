@@ -45,3 +45,7 @@ def publish_rfid_enrollment_event(*, event_type, enrollment_id, matrix_id, pendi
             "pending_count": pending_count,
         },
     )
+
+
+def publish_rfid_payment_event(payload):
+    _publish("rfid_payment", payload)

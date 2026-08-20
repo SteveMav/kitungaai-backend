@@ -35,6 +35,37 @@ urlpatterns = [
     path("stock/nouveau/", views.product_form, name="product-create"),
     path("stock/<int:product_id>/modifier/", views.product_form, name="product-edit"),
     path("cartes-rfid/", views.rfid_enrollments, name="rfid-enrollments"),
+    path("cartes-rfid/ajouter/", views.register_rfid_card, name="rfid-card-register"),
+    path(
+        "cartes-rfid/cartes/<int:card_id>/associer/",
+        views.reassign_rfid_card,
+        name="rfid-card-reassign",
+    ),
+    path(
+        "cartes-rfid/cartes/<int:card_id>/statut/",
+        views.toggle_rfid_card,
+        name="rfid-card-toggle",
+    ),
+    path(
+        "cartes-rfid/cartes/<int:card_id>/supprimer/",
+        views.remove_rfid_card,
+        name="rfid-card-remove",
+    ),
+    path(
+        "cartes-rfid/cartes/<int:card_id>/recharger/",
+        views.top_up_rfid_card,
+        name="rfid-card-top-up",
+    ),
+    path(
+        "paiements-rfid/<uuid:request_id>/confirmer/",
+        views.confirm_rfid_payment,
+        name="rfid-payment-confirm",
+    ),
+    path(
+        "paiements-rfid/<uuid:request_id>/refuser/",
+        views.reject_rfid_payment,
+        name="rfid-payment-reject",
+    ),
     path("cartes-rfid/<int:enrollment_id>/", views.rfid_enrollments, name="rfid-enrollment-detail"),
     path(
         "cartes-rfid/<int:enrollment_id>/accepter/",

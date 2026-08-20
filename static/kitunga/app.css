@@ -167,6 +167,7 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px soli
 .status-badge::before { content: ""; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: currentColor; }
 .status-success { color: var(--olive); background: var(--olive-soft); }
 .status-warning { color: var(--amber); background: var(--amber-soft); }
+.status-danger { color: var(--danger); background: var(--danger-soft); }
 .status-neutral { color: var(--muted); background: var(--paper); }
 
 .master-detail { display: grid; grid-template-columns: 320px minmax(0, 1fr); min-height: 640px; overflow: hidden; border: 1px solid var(--line); background: var(--surface); }
@@ -233,6 +234,20 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px soli
 .rfid-review-aside { padding: 24px; border-left: 1px solid var(--line); background: var(--paper); }
 .rfid-review-aside h3 { font-size: 1.05rem; }
 .rfid-uid { font-family: var(--font-mono); font-size: 0.76rem; letter-spacing: 0.035em; word-break: break-all; }
+.rfid-page-counts { display: flex; flex-wrap: wrap; gap: 8px; }
+.rfid-card-registry { margin-top: 24px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-floating); }
+.registry-heading { display: flex; align-items: end; justify-content: space-between; gap: 28px; padding: 24px 26px; border-bottom: 1px solid var(--line); }
+.registry-heading h2 { font-size: 1.2rem; }
+.registry-heading > div > p:last-child { margin-top: 5px; color: var(--muted); font-size: 0.78rem; }
+.rfid-register-form { display: grid; grid-template-columns: minmax(150px, 0.8fr) minmax(220px, 1.2fr) auto; gap: 10px; align-items: end; min-width: min(100%, 620px); }
+.rfid-register-form .field-group { gap: 4px; }
+.rfid-card-table-wrap { margin: 0; }
+.rfid-reassign-form { display: flex; min-width: 280px; gap: 7px; align-items: center; }
+.rfid-reassign-form select { min-width: 190px; }
+.rfid-card-actions { display: flex; justify-content: flex-end; gap: 7px; }
+.wallet-balance { display: block; margin-bottom: 6px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rfid-top-up-form { display: flex; min-width: 230px; gap: 7px; }
+.rfid-top-up-form input { width: 120px; min-height: 36px; padding: 6px 8px; }
 
 .rfid-notice { position: fixed; z-index: 40; right: 24px; bottom: 24px; display: grid; grid-template-columns: 38px minmax(180px, 1fr) auto 36px; gap: 11px; align-items: center; width: min(540px, calc(100vw - 32px)); padding: 13px; border: 1px solid oklch(59% 0.12 77 / 0.36); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow-floating); }
 .rfid-notice-icon { display: grid; place-items: center; width: 38px; height: 38px; border-radius: var(--radius-sm); color: var(--amber); background: var(--amber-soft); }
@@ -241,6 +256,13 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px soli
 .rfid-notice-copy strong { display: block; font-size: 0.84rem; }
 .rfid-notice-copy p { margin-top: 1px; font-size: 0.74rem; line-height: 1.35; }
 .rfid-notice .icon-button { align-self: center; }
+.rfid-payment-notice { z-index: 42; grid-template-columns: 38px minmax(190px, 1fr) auto 36px; width: min(760px, calc(100vw - 32px)); border-color: oklch(58% 0.145 43 / 0.42); }
+.rfid-payment-notice .rfid-notice-icon { color: var(--copper); background: var(--copper-soft); }
+.rfid-payment-notice.is-insufficient { border-color: oklch(52% 0.17 28 / 0.42); }
+.rfid-payment-notice.is-insufficient .rfid-notice-icon { color: var(--danger); background: var(--danger-soft); }
+.rfid-payment-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
+.rfid-payment-actions form { display: contents; }
+body:has(.rfid-payment-notice:not([hidden])) [data-rfid-enrollment-notice]:not([hidden]) { bottom: 118px; }
 
 .checkout-layout { display: grid; grid-template-columns: minmax(0, 1fr) 315px; flex: 1; }
 .checkout-lines { min-width: 0; padding-bottom: 24px; border-right: 1px solid var(--line); }
@@ -260,6 +282,16 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px soli
 .summary-list dd { margin: 0; font-variant-numeric: tabular-nums; }
 .summary-list .summary-total { margin-top: 8px; padding-top: 16px; border-top: 1px solid var(--line-strong); color: var(--ink); font-size: 1.08rem; font-weight: 680; }
 .checkout-form { padding-top: 20px; border-top: 1px solid var(--line); }
+.rfid-payment-panel { display: grid; gap: 10px; margin-bottom: 16px; padding: 14px; border: 1px solid oklch(58% 0.145 43 / 0.3); border-radius: var(--radius-md); background: var(--copper-soft); }
+.rfid-payment-panel.is-insufficient { border-color: oklch(52% 0.17 28 / 0.3); background: var(--danger-soft); }
+.rfid-payment-panel > .status-badge { justify-self: start; }
+.rfid-payment-panel dl { margin: 0; }
+.rfid-payment-panel dl > div { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; }
+.rfid-payment-panel dd { margin: 0; font-weight: 680; }
+.rfid-payment-panel p { font-size: 0.75rem; }
+.rfid-payment-panel-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.rfid-payment-panel-actions form { flex: 1; }
+.rfid-payment-panel-actions .button { width: 100%; }
 .secondary-action { margin-top: 13px; }
 .secondary-action summary { padding: 9px 0; color: var(--muted); font-size: 0.78rem; font-weight: 620; text-align: center; cursor: pointer; }
 .secondary-action[open] summary { margin-bottom: 8px; }
@@ -339,6 +371,9 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px soli
     .checkout-summary { border-top: 1px solid var(--line); }
     .rfid-enrollment-layout { grid-template-columns: 1fr; }
     .rfid-review-aside { border-top: 1px solid var(--line); border-left: 0; }
+    .registry-heading { align-items: stretch; flex-direction: column; }
+    .rfid-register-form { grid-template-columns: 1fr 1fr; min-width: 0; }
+    .rfid-register-form .button { grid-column: 1 / -1; justify-self: start; }
     .form-layout { grid-template-columns: minmax(0, 1fr) 280px; }
     .checkout-line { grid-template-columns: minmax(120px, 1fr) 150px minmax(78px, auto); }
 }
@@ -403,6 +438,9 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px soli
     .rfid-notice { right: 16px; bottom: 16px; grid-template-columns: 38px minmax(0, 1fr) 36px; }
     .rfid-notice .button { grid-column: 2 / 3; justify-self: start; }
     .rfid-notice .icon-button { grid-column: 3; grid-row: 1; }
+    .rfid-payment-notice { grid-template-columns: 38px minmax(0, 1fr) 36px; }
+    .rfid-payment-actions { grid-column: 1 / -1; justify-content: flex-start; }
+    .rfid-payment-notice .button { grid-column: auto; }
 }
 
 @media (max-width: 520px) {
@@ -417,6 +455,18 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px soli
     .ledger-table td { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 38px; padding: 6px 0 !important; border: 0; text-align: right !important; }
     .ledger-table td::before { content: attr(data-label); color: var(--muted); font-size: 0.68rem; font-weight: 630; }
     .ledger-table .product-cell { align-items: flex-end; }
+    .registry-heading { padding: 20px 17px; }
+    .rfid-register-form { grid-template-columns: 1fr; }
+    .rfid-register-form .button { grid-column: auto; width: 100%; }
+    .rfid-card-table-wrap { margin: 0 17px; }
+    .rfid-reassign-form { flex-wrap: wrap; justify-content: flex-end; min-width: 0; }
+    .rfid-reassign-form select { width: 100%; min-width: 0; }
+    .rfid-top-up-form { flex-wrap: wrap; justify-content: flex-end; min-width: 0; }
+    .rfid-top-up-form input { width: min(150px, 100%); }
+    .rfid-card-actions { flex-wrap: wrap; }
+    .rfid-payment-actions { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
+    .rfid-payment-actions .button { width: 100%; }
+    .rfid-payment-actions > a { grid-column: 1 / -1; }
     .checkout-line { grid-template-columns: 1fr; }
     .quantity-form { max-width: 190px; }
     .line-total { grid-column: auto; text-align: left; }

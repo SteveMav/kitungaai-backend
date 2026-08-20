@@ -1,6 +1,11 @@
 from django.urls import re_path
 
-from .realtime_consumers import BasketDisplayConsumer, CashierTerminalConsumer, RfidEnrollmentConsumer
+from .realtime_consumers import (
+    BasketDisplayConsumer,
+    CashierTerminalConsumer,
+    RfidEnrollmentConsumer,
+    RfidPaymentConsumer,
+)
 
 
 websocket_urlpatterns = [
@@ -10,4 +15,5 @@ websocket_urlpatterns = [
     ),
     re_path(r"^ws/v1/baskets/(?P<matrix_id>[1-9][0-9]{0,3})/$", BasketDisplayConsumer.as_asgi()),
     re_path(r"^ws/v1/rfid-enrollments/$", RfidEnrollmentConsumer.as_asgi()),
+    re_path(r"^ws/v1/rfid-payments/$", RfidPaymentConsumer.as_asgi()),
 ]

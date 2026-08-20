@@ -6,7 +6,7 @@
 - **Recommendation :** conserver un monolithe Django ASGI, une base SQLite et Django Channels, structuré autour des Raspberry Pi, factures actives, détections, clients RFID, wallets et ventes. La Pi s'identifie par son `device_id` sur le LAN privé et ne manipule aucun identifiant interne de panier.
 - **Pourquoi cette solution convient :** elle prolonge la stack déjà opérationnelle, reste exploitable par une petite équipe, évite les microservices et donne un propriétaire unique aux prix, paniers, ventes et stocks.
 - **Risque principal :** une caméra qui envoie la même classe à chaque image crée des doublons. La Raspberry Pi doit transformer les observations vidéo en événements stables `ITEM_ADDED`/`ITEM_REMOVED`, persistés et idempotents, et la caisse doit toujours permettre une correction humaine.
-- **Décision retenue :** la première carte RFID connue ouvre une facture ; une seconde lecture demande au backend de la payer. Le paiement manuel reste possible et toute facture terminée est historisée.
+- **Décision retenue :** la première carte RFID connue ouvre une facture ; une seconde lecture crée une demande que le caissier confirme côté backend avant tout débit. Le paiement manuel reste possible et toute facture terminée est historisée.
 - **Peut attendre :** PostgreSQL, Redis, MQTT, cloud, paiement électronique et fonctionnement multi-magasin.
 - **Confiance :** élevée pour la structure générale ; moyenne pour la logique de comptage visuel tant qu'elle n'a pas été testée avec de vrais ajouts/retraits d'objets en magasin.
 
@@ -63,7 +63,7 @@
 1. **Provisionnement :** un administrateur crée `BasketDevice` avec un `device_id` et, si nécessaire, un `matrix_id`. Aucun secret Pi ou appairage n'est généré.
 2. **Identification :** la première lecture d'une carte RFID connue crée une `BasketSession` `OPEN` pour le client. Une seule facture peut être active par Pi ; le heartbeat et les détections ne la créent jamais.
 3. **Détection :** la Pi stabilise les observations, crée un événement idempotent et l'envoie sans `basket_id`. Django retrouve la facture active par `device_id`, résout le produit et met à jour ses lignes.
-4. **Paiement RFID :** une seconde lecture de la même carte demande le paiement. Django verrouille la facture, le wallet et le stock, recalcule le total, débite le wallet, crée `Sale` et `SaleLine`, décrémente le stock et clôture la facture dans une transaction unique.
+4. **Paiement RFID :** une seconde lecture crée une `RfidPaymentRequest` et notifie la caisse sans débiter. La confirmation authentifiée verrouille la demande, la facture, le wallet et le stock, puis débite, crée `Sale` et `SaleLine`, décrémente le stock et clôture dans une transaction unique.
 5. **Paiement manuel :** un caissier peut relire et corriger la facture, puis confirmer qu'elle est payée. Le même service transactionnel crée la vente et les mouvements de stock.
 6. **Historique :** chaque cycle terminé reste accessible comme facture avec le client, les lignes figées, le paiement, l'appareil et l'opérateur.
 7. **Réinitialisation :** la Pi reçoit `RESET_SESSION`, efface son tracking, acquitte la commande, puis attend la prochaine carte RFID pour ouvrir un nouveau cycle.
@@ -86,7 +86,11 @@ sequenceDiagram
     Django->>DB: Met à jour les lignes de la facture active
     RFID->>Pi: Même carte présentée pour payer
     Pi->>Django: POST invoice/rfid-payment
+    Django->>DB: Crée la demande sans débit
+    Django-->>UI: Popup montant + solde
+    UI->>Django: Confirmer le paiement
     Django->>DB: Wallet + vente + stock + clôture (transaction)
+    Pi->>Django: GET invoice/status
     Django-->>Pi: PAID + numéro de facture + commande reset
     Django-->>UI: Facture disponible dans l'historique
     Pi->>Django: ACK reset

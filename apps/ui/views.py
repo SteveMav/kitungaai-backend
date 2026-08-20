@@ -25,11 +25,22 @@ from apps.checkout.services import (
     remove_uncatalogued_line,
 )
 from apps.devices.models import BasketDevice
-from apps.wallets.models import RfidEnrollmentRequest
+from apps.wallets.models import Customer, RfidCard, RfidEnrollmentRequest, RfidPaymentRequest, Wallet
+from apps.wallets.payment_services import (
+    RfidPaymentError,
+    confirm_rfid_payment_request as confirm_rfid_payment_request_service,
+    reject_rfid_payment_request as reject_rfid_payment_request_service,
+)
 from apps.wallets.services import (
     RfidEnrollmentError,
     approve_rfid_enrollment as approve_rfid_enrollment_service,
+    reassign_rfid_card as reassign_rfid_card_service,
+    register_rfid_card as register_rfid_card_service,
     reject_rfid_enrollment as reject_rfid_enrollment_service,
+    remove_rfid_card as remove_rfid_card_service,
+    toggle_rfid_card as toggle_rfid_card_service,
+    WalletError,
+    credit_wallet,
 )
 
 from .context_processors import can_manage_rfid_enrollments
@@ -39,9 +50,12 @@ from .forms import (
     CompleteSaleForm,
     ProductForm,
     ReleaseBasketForm,
+    RfidCardAssignmentForm,
+    RfidCardRegistrationForm,
     RfidEnrollmentApprovalForm,
     RfidEnrollmentRejectionForm,
     UncataloguedLineRemovalForm,
+    WalletTopUpForm,
 )
 
 
@@ -100,6 +114,20 @@ RFID_ENROLLMENT_ERROR_MESSAGES = {
     "customer_not_available": "Le client sélectionné n'est plus disponible.",
     "customer_name_required": "Indiquez le nom du nouveau client.",
     "customer_code_taken": "Ce code client existe déjà.",
+    "rfid_uid_required": "Indiquez l'UID de la carte.",
+    "rfid_card_not_found": "Cette carte RFID n'existe plus.",
+    "rfid_card_has_payment_history": "Cette carte possède un historique financier. Désactivez-la pour conserver les écritures.",
+}
+
+RFID_PAYMENT_ERROR_MESSAGES = {
+    "payment_request_not_found": "Cette demande de paiement n'existe plus.",
+    "payment_request_not_pending": "Cette demande de paiement ne peut plus être confirmée.",
+    "payment_already_approved": "Ce paiement a déjà été confirmé.",
+    "basket_locked": "Ce panier n'est plus disponible pour ce paiement.",
+    "basket_changed": "Le panier a changé après le scan RFID. Scannez de nouveau la carte.",
+    "wallet_not_found": "Le portefeuille RFID n'est pas disponible.",
+    "insufficient_stock": "Le stock ne suffit plus pour confirmer cette vente.",
+    "uncatalogued_objects_pending": "Retirez les objets non répertoriés avant de confirmer.",
 }
 
 
@@ -248,7 +276,13 @@ def checkout(request, session_id=None):
 
     complete_form = None
     release_form = None
+    rfid_payment_request = None
     if selected:
+        rfid_payment_request = (
+            RfidPaymentRequest.objects.filter(session=selected)
+            .select_related("card__customer", "wallet")
+            .first()
+        )
         complete_form = CompleteSaleForm(
             initial={
                 "expected_version": selected.version,
@@ -272,6 +306,7 @@ def checkout(request, session_id=None):
             "can_correct": _can_correct_basket(request.user),
             "can_complete": _can_complete_sale(request.user),
             "can_release": _can_release_basket(request.user),
+            "rfid_payment_request": rfid_payment_request,
         },
     )
 
@@ -431,6 +466,14 @@ def rfid_enrollments(request, enrollment_id=None):
             messages.warning(request, "Cette demande RFID n'est plus en attente.")
     if selected is None and pending:
         selected = pending[0]
+    cards = list(RfidCard.objects.select_related("customer").order_by("uid"))
+    wallet_by_customer = {
+        wallet.customer_id: wallet
+        for wallet in Wallet.objects.filter(customer_id__in=(card.customer_id for card in cards))
+    }
+    for card in cards:
+        card.wallet = wallet_by_customer.get(card.customer_id)
+    customers = list(Customer.objects.filter(is_active=True).order_by("display_name", "customer_code"))
 
     return render(
         request,
@@ -440,8 +483,12 @@ def rfid_enrollments(request, enrollment_id=None):
             "page_title": "Cartes RFID",
             "pending": pending,
             "selected": selected,
+            "cards": cards,
+            "customers": customers,
+            "card_form": RfidCardRegistrationForm(),
             "approval_form": RfidEnrollmentApprovalForm(),
             "rejection_form": RfidEnrollmentRejectionForm(),
+            "top_up_form": WalletTopUpForm(),
         },
     )
 
@@ -493,6 +540,135 @@ def reject_rfid_enrollment(request, enrollment_id):
         return redirect("ui:rfid-enrollment-detail", enrollment_id=enrollment_id)
     messages.success(request, "Demande RFID refusée.")
     return redirect("ui:rfid-enrollments")
+
+
+@ui_access_required
+def register_rfid_card(request):
+    _rfid_enrollment_access_required(request)
+    if request.method != "POST":
+        raise PermissionDenied
+    form = RfidCardRegistrationForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "Vérifiez l'UID et le client avant d'ajouter la carte.")
+        return redirect("ui:rfid-enrollments")
+    try:
+        card = register_rfid_card_service(
+            raw_uid=form.cleaned_data["uid"],
+            customer=form.cleaned_data["customer"],
+            reviewer=request.user,
+        )
+    except RfidEnrollmentError as error:
+        messages.error(request, RFID_ENROLLMENT_ERROR_MESSAGES.get(error.code, "La carte n'a pas pu être ajoutée."))
+        return redirect("ui:rfid-enrollments")
+    messages.success(request, f"Carte RFID {card.uid} ajoutée pour {card.customer.display_name}.")
+    return redirect("ui:rfid-enrollments")
+
+
+@ui_access_required
+def reassign_rfid_card(request, card_id):
+    _rfid_enrollment_access_required(request)
+    if request.method != "POST":
+        raise PermissionDenied
+    form = RfidCardAssignmentForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "Sélectionnez un client actif.")
+        return redirect("ui:rfid-enrollments")
+    try:
+        card = reassign_rfid_card_service(card_id=card_id, customer=form.cleaned_data["customer"])
+    except RfidEnrollmentError as error:
+        messages.error(request, RFID_ENROLLMENT_ERROR_MESSAGES.get(error.code, "La carte n'a pas pu être modifiée."))
+        return redirect("ui:rfid-enrollments")
+    messages.success(request, f"Carte {card.uid} associée à {card.customer.display_name}.")
+    return redirect("ui:rfid-enrollments")
+
+
+@ui_access_required
+def toggle_rfid_card(request, card_id):
+    _rfid_enrollment_access_required(request)
+    if request.method != "POST":
+        raise PermissionDenied
+    try:
+        card = toggle_rfid_card_service(card_id=card_id)
+    except RfidEnrollmentError as error:
+        messages.error(request, RFID_ENROLLMENT_ERROR_MESSAGES.get(error.code, "Le statut n'a pas pu être modifié."))
+        return redirect("ui:rfid-enrollments")
+    state = "activée" if card.is_active else "désactivée"
+    messages.success(request, f"Carte {card.uid} {state}.")
+    return redirect("ui:rfid-enrollments")
+
+
+@ui_access_required
+def remove_rfid_card(request, card_id):
+    _rfid_enrollment_access_required(request)
+    if request.method != "POST":
+        raise PermissionDenied
+    try:
+        uid = remove_rfid_card_service(card_id=card_id)
+    except RfidEnrollmentError as error:
+        messages.error(request, RFID_ENROLLMENT_ERROR_MESSAGES.get(error.code, "La carte n'a pas pu être supprimée."))
+        return redirect("ui:rfid-enrollments")
+    messages.success(request, f"Carte {uid} supprimée. Son prochain scan demandera une nouvelle association.")
+    return redirect("ui:rfid-enrollments")
+
+
+@ui_access_required
+def top_up_rfid_card(request, card_id):
+    _rfid_enrollment_access_required(request)
+    if request.method != "POST":
+        raise PermissionDenied
+    card = get_object_or_404(RfidCard.objects.select_related("customer"), pk=card_id)
+    form = WalletTopUpForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "Indiquez un montant de rechargement valide.")
+        return redirect("ui:rfid-enrollments")
+    wallet, _created = Wallet.objects.get_or_create(customer=card.customer)
+    try:
+        credit_wallet(
+            wallet_id=wallet.id,
+            amount=form.cleaned_data["amount"],
+            user=request.user,
+            reason=form.cleaned_data["reason"] or f"Rechargement carte {card.uid}",
+        )
+    except WalletError:
+        messages.error(request, "Ce portefeuille ne peut pas être rechargé.")
+    else:
+        wallet.refresh_from_db(fields=("balance",))
+        messages.success(request, f"{form.cleaned_data['amount']:.0f} FC ajoutés. Nouveau solde : {wallet.balance:.0f} FC.")
+    return redirect("ui:rfid-enrollments")
+
+
+@ui_access_required
+def confirm_rfid_payment(request, request_id):
+    if request.method != "POST" or not _can_complete_sale(request.user):
+        raise PermissionDenied
+    payment_request = get_object_or_404(RfidPaymentRequest, pk=request_id)
+    try:
+        sale, _duplicate = confirm_rfid_payment_request_service(
+            request_id=request_id,
+            reviewer=request.user,
+        )
+    except RfidPaymentError as error:
+        messages.error(request, RFID_PAYMENT_ERROR_MESSAGES.get(error.code, "Le paiement RFID n'a pas pu être confirmé."))
+        return redirect("ui:checkout-detail", session_id=payment_request.session_id)
+    if sale is None:
+        messages.error(request, "Solde RFID insuffisant : aucun débit et aucune facture créés.")
+        return redirect("ui:checkout-detail", session_id=payment_request.session_id)
+    messages.success(request, f"Paiement confirmé. Facture {sale.sale_number} créée et portefeuille débité.")
+    return redirect("ui:invoice-detail", sale_id=sale.id)
+
+
+@ui_access_required
+def reject_rfid_payment(request, request_id):
+    if request.method != "POST" or not _can_complete_sale(request.user):
+        raise PermissionDenied
+    payment_request = get_object_or_404(RfidPaymentRequest, pk=request_id)
+    try:
+        reject_rfid_payment_request_service(request_id=request_id, reviewer=request.user)
+    except RfidPaymentError as error:
+        messages.error(request, RFID_PAYMENT_ERROR_MESSAGES.get(error.code, "Le paiement RFID n'a pas pu être refusé."))
+    else:
+        messages.success(request, "Paiement RFID refusé. Aucun montant n'a été débité.")
+    return redirect("ui:checkout-detail", session_id=payment_request.session_id)
 
 
 @ui_access_required

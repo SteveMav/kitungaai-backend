@@ -21,7 +21,7 @@ Django reste la source de vérité des factures, prix, wallets, paiements, vente
 | `POST` | `/api/iot/devices/{device_id}/invoice/start/` | Identifie la carte et crée ou reprend la facture active |
 | `POST` | `/api/iot/devices/{device_id}/invoice/detections/` | Ajoute une détection YOLO à la facture active |
 | `GET` | `/api/iot/devices/{device_id}/invoice/status/` | Retourne `IDLE`, `ACTIVE`, `CHECKOUT_PENDING` ou `PAID` |
-| `POST` | `/api/iot/devices/{device_id}/invoice/rfid-payment/` | Débite le wallet et clôture la facture |
+| `POST` | `/api/iot/devices/{device_id}/invoice/rfid-payment/` | Crée une demande de confirmation RFID sans débiter |
 | `POST` | `/api/v1/devices/{device_id}/heartbeat` | Met à jour la présence de la Pi sans créer de facture |
 | `POST` | `/api/v1/devices/{device_id}/commands/{command_id}/ack` | Acquitte la réinitialisation après paiement |
 
@@ -57,7 +57,7 @@ Content-Type: application/json
 
 Le backend retrouve la facture `OPEN` de la Pi. Aucun `basket_id` n’est accepté ni renvoyé au client courant.
 
-### Confirmer le paiement RFID
+### Demander le paiement RFID
 
 ```http
 POST /api/iot/devices/KITUNGA-PI-01/invoice/rfid-payment/
@@ -69,14 +69,15 @@ Content-Type: application/json
 
 ```json
 {
-  "status": "PAID",
-  "payment_status": "PAID",
-  "sale_number": "KIT-20260819-ABCDEF1234",
-  "reset_command_id": "86f47bc2-5948-40f7-948d-44fd0c12a011"
+  "status": "PAYMENT_CONFIRMATION_PENDING",
+  "payment_status": "PENDING",
+  "payment_request_id": "86f47bc2-5948-40f7-948d-44fd0c12a011",
+  "amount": "1500.00",
+  "balance": "2000.00"
 }
 ```
 
-Dans une transaction unique, Django vérifie la carte et le client, recalcule le total, vérifie le solde et le stock, débite le wallet, crée la vente et ses lignes, diminue le stock et clôture la facture.
+Le scan verrouille la facture et notifie la caisse par WebSocket, sans débit. Un caissier autorisé confirme ou refuse depuis le popup ou la page **Caisse**. À la confirmation seulement, Django revérifie le montant, le solde et le stock puis débite le wallet, crée la vente, diminue le stock et clôture la facture dans une transaction unique. Un solde insuffisant renvoie `402 INSUFFICIENT_FUNDS`, affiche l’alerte et ne crée aucun débit ni facture.
 
 ## API V1 complémentaire
 
@@ -86,7 +87,7 @@ Les routes V1 historiques de heartbeat, événements détaillés, caisse et diag
 
 - `401 DEVICE_UNAUTHORIZED` : le `device_id` n’existe pas ou la Raspberry est désactivée dans Django.
 - `409 NO_ACTIVE_INVOICE` : aucune première lecture RFID valide n’a ouvert de facture.
-- `402 INSUFFICIENT_FUNDS` : le wallet ne couvre pas le total ; wallet, stock et facture restent inchangés.
+- `402 INSUFFICIENT_FUNDS` : le wallet ne couvre pas le total ; wallet, stock et facture restent inchangés, et un rechargement peut rendre la demande confirmable.
 - `403 RFID_MISMATCH` : la carte de paiement n’appartient pas au client de la facture.
 - `409 CHECKOUT_REQUIRED` : la facture a changé d’état pendant l’opération.
 
